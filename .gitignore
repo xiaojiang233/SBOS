@@ -1,0 +1,7 @@
+/target/
+/build/
+/_qemu/
+__pycache__/
+*.efi
+*.elf
+.workbuddy/

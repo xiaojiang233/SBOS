@@ -1,0 +1,17 @@
+--- a/lib/sh/netopen.c
++++ b/lib/sh/netopen.c
+@@ -326,10 +326,13 @@ udpopen (char *host, char *serv)
+ #else /* !HAVE_NETWORK */
+
++#include <errno.h>
++
+ int
+ netopen (char *path)
+ {
+-  internal_error (_("network operations not supported"));
++  (void)path;
++  errno = ENOSYS;
+   return -1;
+ }
+
+ #endif /* !HAVE_NETWORK */

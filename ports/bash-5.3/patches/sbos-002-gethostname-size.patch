@@ -1,0 +1,9 @@
+--- a/externs.h
++++ b/externs.h
+@@ -308,7 +308,7 @@ extern int getdtablesize (void);
+ #endif /* !HAVE_GETDTABLESIZE */
+ 
+ #if !defined (HAVE_GETHOSTNAME)
+-extern int gethostname (char *, int);
++extern int gethostname (char *, size_t);
+ #endif /* !HAVE_GETHOSTNAME */

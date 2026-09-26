@@ -1,0 +1,9 @@
+[package]
+name = "sbos-boot"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "BOOTX64"
+path = "src/main.rs"

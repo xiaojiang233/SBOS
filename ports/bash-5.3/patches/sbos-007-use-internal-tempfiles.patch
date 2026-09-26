@@ -1,0 +1,10 @@
+--- a/config-top.h
++++ b/config-top.h
+@@ -177,4 +177,4 @@
+ /* Define to use libc mktemp/mkstemp instead of replacements in lib/sh/tmpfile.c */
+-#define USE_MKTEMP
+-#define USE_MKSTEMP
+-#define USE_MKDTEMP
++/* #undef USE_MKTEMP */
++/* #undef USE_MKSTEMP */
++/* #undef USE_MKDTEMP */

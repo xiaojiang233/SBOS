@@ -1,0 +1,24 @@
+--- a/include/shmbutil.h
++++ b/include/shmbutil.h
+@@ -25,6 +25,9 @@
+ /* Include config.h for HANDLE_MULTIBYTE */
+ #include <config.h>
+
++/* Present in locale.c even when the single-byte build disables wide chars. */
++extern int locale_utf8locale;
++
+ #if defined (HANDLE_MULTIBYTE)
+ #include "shmbchar.h"
+
+--- a/lib/sh/setlinebuf.c
++++ b/lib/sh/setlinebuf.c
+@@ -58,7 +58,8 @@ sh_setlinebuf (FILE *stream)
+   return (setvbuf (stream, local_linebuf, _IOLBF, LBUF_BUFSIZE));
+ #else /* !HAVE_SETVBUF */
+
+-  setlinebuf (stream);
++  /* SBOS stdio is unbuffered until setvbuf support is added. */
++  (void)stream;
+   return (0);
+
+ #endif /* !HAVE_SETVBUF */

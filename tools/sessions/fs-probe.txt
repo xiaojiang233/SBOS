@@ -1,0 +1,4 @@
+cat /System/Readme.txt
+pwd
+ls /Applications
+ls /System

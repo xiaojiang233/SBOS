@@ -1,0 +1,14 @@
+echo SBOS-Bash-$BASH_VERSION
+id
+pwd
+help pwd
+ls /Applications
+cat /System/Readme.txt
+printf before-rename > /Users/Root/rename-source.txt
+printf previous-target > /Users/Root/rename-target.txt
+mv /Users/Root/rename-source.txt /Users/Root/rename-target.txt
+cat /Users/Root/rename-target.txt
+clear
+posix-probe
+echo shell-remains-interactive
+exit

@@ -1,0 +1,28 @@
+--- a/lib/readline/mbutil.c
++++ b/lib/readline/mbutil.c
+@@ -587,6 +587,7 @@
+ /* Compare the first N characters of S1 and S2 without regard to case. If
+    FLAGS&1, apply the mapping specified by completion-map-case and make
+    `-' and `_' equivalent. Returns 1 if the strings are equal. */
++#if defined (HANDLE_MULTIBYTE)
+ int
+ _rl_mb_strcaseeqn (const char *s1, size_t l1, const char *s2, size_t l2, size_t n, int flags)
+ {
+@@ -659,2 +660,3 @@
+   return (wc1 == wc2);
+ }
++#endif /* HANDLE_MULTIBYTE */
+--- a/lib/sh/random.c
++++ b/lib/sh/random.c
+@@ -21,5 +21,6 @@
+ #include "config.h"
+ 
+ #include "bashtypes.h"
++#include <sys/time.h>
+ 
+ #if defined (HAVE_SYS_RANDOM_H)
+@@ -88,3 +89,3 @@ genseed (void)
+ {
+-  struct timeval tv;
++  struct timeval tv = { 0, 0 };
+   u_bits32_t iv;

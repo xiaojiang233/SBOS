@@ -1,0 +1,10 @@
+--- a/include/timer.h
++++ b/include/timer.h
+@@ -23,6 +23,7 @@
+ #endif
+ 
+ #include "bashjmp.h"
++#include <sys/time.h>
+ typedef struct _shtimer
+ {
+   struct timeval tmout;

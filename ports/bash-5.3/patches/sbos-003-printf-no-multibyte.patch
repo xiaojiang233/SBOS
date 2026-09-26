@@ -1,0 +1,20 @@
+--- a/builtins/printf.def
++++ b/builtins/printf.def
+@@ -284,8 +284,10 @@ printf_builtin (WORD_LIST *list)
+   char convch, thisch, nextch, *format, *modstart, *precstart, *fmt, *start;
+ #if defined (HANDLE_MULTIBYTE)
+   char mbch[25];		/* 25 > MB_LEN_MAX, plus can handle 4-byte UTF-8 and large Unicode characters*/
+-  int mbind, mblen, mb_cur_max;
++  int mbind, mblen;
+ #endif
++  int mb_cur_max;
++
+ #if defined (ARRAY_VARS)
+   int arrayflags;
+ #endif
+@@ -1226,4 +1226,4 @@ printf_builtin (WORD_LIST *list)
+       s += tescape (s, mbch, &mblen, &temp);
+ #else
+-      s += tescape (s, &c, (int *)NULL, &temp);
++      s += tescape (s, (char *)&c, (int *)NULL, &temp);
+ #endif

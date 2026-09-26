@@ -1,0 +1,6 @@
+--- a/bashline.c
++++ b/bashline.c
+@@ -4145 +4145 @@
+-    rl_point++:
++    rl_point++;
+   return point;
