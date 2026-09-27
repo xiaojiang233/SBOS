@@ -46,6 +46,7 @@ const POSIX_PROBE_IMAGE: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/posix-probe.elf"));
 const COREUTILS_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/coreutils.elf"));
 const GREP_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/grep.elf"));
+const SED_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/sed.elf"));
 const CLEAR_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/clear.elf"));
 const ID_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/id.elf"));
 const MV_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/mv.elf"));
@@ -71,6 +72,7 @@ const APPLICATION_IMAGES: &[(&str, &[u8])] = &[
     ("env", COREUTILS_IMAGE),
     ("false", COREUTILS_IMAGE),
     ("grep", GREP_IMAGE),
+    ("sed", SED_IMAGE),
     ("head", COREUTILS_IMAGE),
     ("ls", COREUTILS_IMAGE),
     ("mkdir", COREUTILS_IMAGE),

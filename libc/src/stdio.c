@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -252,6 +253,12 @@ int __freading(FILE *stream) {
     return stream != 0 && ((stream->readable && !stream->writable) || stream->last_was_read);
 }
 
+/* Write-only streams begin in write mode; update streams follow last I/O. */
+int __fwriting(FILE *stream) {
+    return stream != 0 && stream->writable
+           && (!stream->readable || !stream->last_was_read);
+}
+
 void __fseterr(FILE *stream) {
     if (stream != 0) stream->error = 1;
 }
@@ -273,14 +280,36 @@ int ungetc(int character, FILE *stream) {
 }
 
 int fseek(FILE *stream, long offset, int whence) {
-    (void)stream; (void)offset; (void)whence;
-    errno = ENOSYS;
-    return -1;
+    off_t displacement = (off_t)offset;
+    off_t position;
+    if (stream == 0) { errno = EINVAL; return -1; }
+    if ((long)displacement != offset) { errno = EOVERFLOW; return -1; }
+    if (whence == SEEK_CUR && stream->pushback >= 0) {
+        if (displacement == (off_t)LONG_MIN) { errno = EOVERFLOW; return -1; }
+        --displacement;
+    }
+    position = lseek(stream->fd, displacement, whence);
+    if (position < 0) return -1;
+    stream->pushback = -1;
+    stream->eof = 0;
+    stream->error = 0;
+    stream->last_was_read = 0;
+    return 0;
 }
 long ftell(FILE *stream) {
-    (void)stream;
-    errno = ENOSYS;
-    return -1;
+    off_t position;
+    if (stream == 0) { errno = EINVAL; return -1; }
+    position = lseek(stream->fd, 0, SEEK_CUR);
+    if (position < 0) return -1;
+    if (stream->pushback >= 0) --position;
+    if ((off_t)(long)position != position) { errno = EOVERFLOW; return -1; }
+    return (long)position;
+}
+
+void rewind(FILE *stream) {
+    if (stream == 0) return;
+    (void)fseek(stream, 0, SEEK_SET);
+    clearerr(stream);
 }
 
 void perror(const char *prefix) {

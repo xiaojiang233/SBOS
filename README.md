@@ -21,7 +21,7 @@ This is a bring-up project, not a production-ready OS. The first-stage implement
 - **进程与用户态**：Process、Thread、AddressSpace、独立用户页表、Ring 3 ELF64 Loader、用户栈、自定义 `int 0x80` Native syscall ABI；Process 采用 Running/Exiting/Zombie/Reaped 状态，waitpid 后回收地址空间与线程栈，用户异常不会停掉 Bash。
 - **身份管理**：独立 User/Group Manager，将 Root（UID/GID 0）和 Guest（UID/GID 1000）账户写入 SBFS 的 `/System/Accounts.db`；当前开发启动默认使用 root，账户 API 已有创建/删除入口。
 - **文件和系统服务**：VFS/VNode/File/Directory、携带 MountId 的 `NodeRef`、Device Manager、块设备接口、Volume Manager、SBFS 持久化文件系统（无磁盘时回退 tmpfs）、ConfigStore、Service Manager 和双端有界 Channel。Channel 可以阻塞等待，并以 sender-retains-original 语义复制传递 Handle，保留原 rights。
-- **用户程序**：GNU Bash 5.3（上游 patchlevel 20，含 GNU Readline/termcap）以 Ring 3 交互 Shell 启动；GNU Coreutils 9.12 精选 applets 与独立 GNU grep 3.12 可在 `/Applications` 使用。grep 已在 QEMU 中验证基本/扩展正则、行号、忽略大小写、反向匹配、计数和 quiet 状态。独立 C 程序仍提供 `clear`、`id`、`mv`、`fault`、`channel-probe`、`network-probe`、`desktop-demo`、`mouse-probe`、`tcp-listen-probe`、`xserver` 和 POSIX 自检程序。
+- **用户程序**：GNU Bash 5.3（上游 patchlevel 20，含 GNU Readline/termcap）以 Ring 3 交互 Shell 启动；GNU Coreutils 9.12 精选 applets、GNU grep 3.12 和 GNU sed 4.10 可在 `/Applications` 使用。QEMU 已验证 grep BRE/ERE 与 sed 替换/地址选择。独立 C 程序仍提供 `clear`、`id`、`mv`、`fault`、`channel-probe`、`network-probe`、`desktop-demo`、`mouse-probe`、`tcp-listen-probe`、`xserver` 和 POSIX 自检程序。
 - **兼容接口**：`user/runtime` Rust API、自定义 syscall ABI、`libc/` C runtime，以及 `compat/posix` 适配层。`fork`、`execve`、`waitpid`、pipe、TTY、文件描述符和 `rename` 已有最小可运行路径。
 - **网络 bring-up**：可选 PCI/e1000 驱动使用 PMM DMA 描述符环；可选 `network-stack` 使用 no_std smoltcp，已接入 Ethernet、ARP、IPv4、ICMP、UDP/TCP 协议组件和 DHCPv4 租约获取。QEMU 用户网络实测取得 `10.0.2.15/24`。Ring 3 已实现 IPv4 UDP 和 TCP stream 的基本 socket/fd API，libc `getaddrinfo` 可用 DHCP DNS 解析 IPv4 A 记录。QEMU 已验证 UDP/DNS 往返、TCP listen/accept/read/write 回显。TCP active connect、完整 socket options、IPv6 和 GNU 网络客户端兼容仍在开发。
 - **图形 bring-up**：用户态通过 capability syscall 使用 GOP surface；Ring 3 `/Applications/xserver` 提供受限 X11 11.0 子集。QEMU QMP 已验证焦点窗口 KeyPress/KeyRelease、MotionNotify 和 ButtonPress。完整 X.Org、认证、pixmaps、窗口管理器/compositor 及其他输入设备尚未完成；开发模式必须显式使用 `-noauth`。
@@ -55,7 +55,7 @@ rustup target add x86_64-unknown-none x86_64-unknown-uefi
 ./tools/run-qemu.ps1
 ```
 
-`build.ps1` 先构建 libc、C 用户程序、上游 Bash、Coreutils 和 GNU grep，再构建内核与 EFI Loader。它生成 `build/esp`，校验 EFI PE/COFF 类型和静态 ELF64 `ET_EXEC` 入口段，并将 Bash ELF 放为 EFI Loader 读取的 `shell.elf`。QEMU 首次运行会创建 64 MiB 的 `build/sbfs.img`，之后保留该磁盘镜像以验证持久化；要重新格式化时，需在关机后自行移走或重命名该镜像。QEMU 默认用 SDL 显示 GOP framebuffer，并将串口连到启动终端；无窗口模式：
+`build.ps1` 先构建 libc、C 用户程序、上游 Bash、Coreutils、GNU grep 和 GNU sed，再构建内核与 EFI Loader。它生成 `build/esp`，校验 EFI PE/COFF 类型和静态 ELF64 `ET_EXEC` 入口段，并将 Bash ELF 放为 EFI Loader 读取的 `shell.elf`。QEMU 首次运行会创建 64 MiB 的 `build/sbfs.img`，之后保留该磁盘镜像以验证持久化；要重新格式化时，需在关机后自行移走或重命名该镜像。QEMU 默认用 SDL 显示 GOP framebuffer，并将串口连到启动终端；无窗口模式：
 
 ```powershell
 ./tools/run-qemu.ps1 -Display none

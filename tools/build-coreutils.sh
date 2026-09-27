@@ -21,7 +21,9 @@ cd "$BUILD"
 PROFILE_HASH=$(
     sha256sum "$ROOT/tools/build-coreutils.sh" "$ROOT/tools/prepare-coreutils.sh" \
         "$ROOT/tools/coreutils-cc.sh" "$SOURCE/configure" \
-        "$ROOT/libc/include/wchar.h" "$ROOT/libc/src/wchar.c" \
+        "$ROOT/libc/include/ctype.h" "$ROOT/libc/include/errno.h" \
+        "$ROOT/libc/include/stdio.h" "$ROOT/libc/include/wchar.h" \
+        "$ROOT/libc/src/ctype.c" "$ROOT/libc/src/stdio.c" "$ROOT/libc/src/wchar.c" \
         "$ROOT"/tools/patches/coreutils-9.12-*.patch |
         sha256sum | cut -d ' ' -f1
 )
@@ -41,6 +43,7 @@ gl_cv_socklen_t_equiv=int \
 gl_cv_func_strerror_0_works=yes \
 gl_cv_func_strtod_works='no (underflow problem)' \
 ac_cv_header_sys_select_h=yes \
+ac_cv_func_isblank=yes \
 ac_cv_func_mbtowc=yes \
 ac_cv_func_mbrtowc=yes \
 CC="$ROOT/tools/coreutils-cc.sh" \

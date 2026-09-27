@@ -11,6 +11,7 @@ static inline int isprint(int c) { return c >= 0x20 && c <= 0x7e; }
 static inline int isgraph(int c) { return c > 0x20 && c <= 0x7e; }
 static inline int ispunct(int c) { return isgraph(c) && !isalnum(c); }
 static inline int iscntrl(int c) { return c < 0x20 || c == 0x7f; }
+int isblank(int c);
 static inline int tolower(int c) { return isupper(c) ? c + ('a' - 'A') : c; }
 static inline int toupper(int c) { return islower(c) ? c - ('a' - 'A') : c; }
 #endif

@@ -1,0 +1,14 @@
+--- a/lib/getprogname.c
++++ b/lib/getprogname.c
+@@ -251,6 +251,10 @@
+       close (fd);
+     }
+   return "?";
++# elif defined __SBOS__
++#  undef getprogname
++  extern char const *__sbos_program_short_name (void);
++  return __sbos_program_short_name ();
+ # else
+ #  error "getprogname module not ported to this OS"
+ # endif
+}

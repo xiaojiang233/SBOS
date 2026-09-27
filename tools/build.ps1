@@ -27,6 +27,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "GNU grep build failed: $LASTEXITCODE" }
     Copy-Item -Force (Join-Path $root 'build/grep/grep.elf') `
         (Join-Path $root 'build/userland/grep.elf')
+    & wsl.exe -e bash -lc "cd '$linuxRoot' && sh tools/build-sed.sh"
+    if ($LASTEXITCODE -ne 0) { throw "GNU sed build failed: $LASTEXITCODE" }
+    Copy-Item -Force (Join-Path $root 'build/sed/sed.elf') `
+        (Join-Path $root 'build/userland/sed.elf')
+    & wsl.exe -e bash -lc "cd '$linuxRoot' && sh tools/build-sed.sh"
+    if ($LASTEXITCODE -ne 0) { throw "GNU sed build failed: $LASTEXITCODE" }
+    Copy-Item -Force (Join-Path $root 'build/sed/sed.elf') `
+        (Join-Path $root 'build/userland/sed.elf')
 
     cargo check -p sbos-runtime -p sbos-posix --target x86_64-unknown-none
     if ($LASTEXITCODE -ne 0) { throw "Cargo runtime build failed: $LASTEXITCODE" }

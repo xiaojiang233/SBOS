@@ -1,0 +1,21 @@
+--- a/lib/fwriting.c
++++ b/lib/fwriting.c
+@@ -24,6 +24,9 @@
+ #include "fwriting.h"
+ 
+ #include "stdio-impl.h"
++#if defined __SBOS__
++# include <stdio_ext.h>
++#endif
+ 
+ /* This file is not used on systems that have the __fwriting function,
+    namely glibc >= 2.2, OpenBSD >= 7.6, Solaris >= 7, UnixWare >= 7.1.4.MP4,
+@@ -62,6 +65,8 @@ fwriting (FILE *fp)
+     return 0;
+   return (fp->state == 4 /* WR */ && (fp->bufl == 0 || fp->wp < fp->rp));
++#elif defined __SBOS__
++  return __fwriting (fp);
+ #else
+ # error "Please port gnulib fwriting.c to your platform!"
+ #endif
+ }

@@ -1,0 +1,7 @@
+printf 'alpha\nBeta\nalphabet\n' > /Users/Root/sed-input.txt
+sed --version
+sed 's/alpha/omega/g' /Users/Root/sed-input.txt
+sed -n '2p' /Users/Root/sed-input.txt
+sed -n '/^Beta$/p' /Users/Root/sed-input.txt
+sed 's/Beta/GAMMA/' /Users/Root/sed-input.txt
+exit

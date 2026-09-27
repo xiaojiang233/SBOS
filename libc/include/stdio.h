@@ -54,6 +54,7 @@ void clearerr(FILE *stream);
 int ungetc(int character, FILE *stream);
 int fseek(FILE *stream, long offset, int whence);
 long ftell(FILE *stream);
+void rewind(FILE *stream);
 void perror(const char *prefix);
 int rename(const char *old_path, const char *new_path);
 

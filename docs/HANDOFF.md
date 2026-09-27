@@ -27,6 +27,9 @@ ignored `_qemu/src/`. Port patches and configure cache live under
   support and is installed as `/Applications/grep`. Its upstream archive's
   detached signature was verified; QEMU smoke covers BRE/ERE and selection
   flags against an SBFS file.
+* GNU sed 4.10 is built as a separate static ELF and installed at
+  `/Applications/sed`. QEMU smoke verifies GNU version output, substitutions,
+  line-address printing and anchored address selection.
 * `rename()` is implemented through POSIX syscall 63, VFS and both filesystem
   backends. SBFS journals source/destination directory entry changes and
   metadata together. Replacing an existing file is supported.

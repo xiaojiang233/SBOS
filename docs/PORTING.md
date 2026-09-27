@@ -72,8 +72,9 @@ The Coreutils 9.12 profile includes `[`, `basename`, `cat`, `cut`, `date`,
 `dirname`, `env`, `false`, `head`, `ls`, `mkdir`, `printenv`, `printf`, `pwd`,
 `rm`, `rmdir`, `seq`, `sleep`, `tail`, `tee`, `test`, `tr`, `true`, `wc`, and
 `yes`. GNU grep 3.12 is separately installed and QEMU-tested with BRE/ERE,
-line-number, ignore-case, invert-match, count and quiet modes. Commands with
-incomplete TTY/volume contracts, including `stty`, `df`,
+line-number, ignore-case, invert-match, count and quiet modes. GNU sed 4.10 is
+QEMU-tested with substitution and address selection. Commands with incomplete
+TTY/volume contracts, including `stty`, `df`,
 and `du`, are not included. The time implementation assumes the CMOS RTC is
 configured as UTC; regional timezone data and daylight-saving rules are not
 available.
