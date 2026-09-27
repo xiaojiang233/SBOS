@@ -40,7 +40,9 @@ if ($LASTEXITCODE -ne 0) { throw "Creating libsbos.a failed: $LASTEXITCODE" }
 
 # Bash maintains its own exported-variable view. Its lib/sh/getenv.c provides
 # getenv/setenv/putenv, so the Bash-specific archive omits those libc symbols.
-$bashObjects = @($objects | Where-Object { [System.IO.Path]::GetFileName($_) -ne 'stdlib.o' })
+$bashObjects = @($objects | Where-Object {
+    [System.IO.Path]::GetFileName($_) -ne 'stdlib.o'
+})
 $bashStdlib = Join-Path $out 'stdlib-bash.o'
 & $clang --target=x86_64-unknown-none-elf -std=c11 -O2 -ffreestanding `
     -fno-builtin -fno-stack-protector -fno-pic -mno-red-zone -DSBOS_NO_ENVIRONMENT `

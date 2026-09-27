@@ -73,6 +73,8 @@ $env:QEMU_DATA_DIR = Join-Path (Split-Path -Parent $qemuExe) 'share'
 
 $arguments = @(
     '-machine', 'pc', '-cpu', 'qemu64', '-m', '512M',
+    '-netdev', 'user,id=net0',
+    '-device', 'e1000,netdev=net0,mac=52:54:00:12:34:56',
     '-drive', "if=pflash,format=raw,unit=0,file=$ovmf,readonly=on",
     '-drive', "if=pflash,format=raw,unit=1,file=$varsPath",
     '-drive', "if=ide,index=0,format=raw,file=fat:rw:$esp",

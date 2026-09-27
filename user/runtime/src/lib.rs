@@ -68,6 +68,10 @@ pub mod syscall {
     pub const POSIX_TTY_SET: u64 = 59;
     pub const POSIX_IOCTL: u64 = 60;
     pub const POSIX_EXECVE: u64 = 61;
+    pub const DIRECTORY_CREATE: u64 = 64;
+    pub const DIRECTORY_REMOVE: u64 = 65;
+    pub const FILE_SYNC: u64 = 66;
+    pub const THREAD_SLEEP: u64 = 67;
 }
 
 pub mod query {
@@ -355,13 +359,58 @@ pub fn channel_send(handle: Handle<ChannelObject>, bytes: &[u8]) -> isize {
     )
 }
 
+/// Send a bounded message with duplicated object handles. Each source handle
+/// must carry TRANSFER; the receiver gets a new process-local token with the
+/// same rights, and the sender keeps its original token.
+pub fn channel_send_with_handles(
+    handle: Handle<ChannelObject>,
+    bytes: &[u8],
+    transferred: &[u32],
+) -> isize {
+    unsafe {
+        raw_syscall(
+            syscall::CHANNEL_SEND,
+            handle.raw as u64,
+            bytes.as_ptr() as u64,
+            bytes.len() as u64,
+            transferred.as_ptr() as u64,
+            transferred.len() as u64,
+            0,
+        ) as isize
+    }
+}
+
 pub fn channel_receive(handle: Handle<ChannelObject>, out: &mut [u8]) -> isize {
-    call(
-        syscall::CHANNEL_RECEIVE,
-        handle.raw as u64,
-        out.as_mut_ptr() as u64,
-        out.len() as u64,
-    )
+    let mut transferred = [0u32; 8];
+    let (result, count) = channel_receive_with_handles(handle, out, &mut transferred);
+    if count != 0 {
+        for raw in transferred.iter().take(count) {
+            let _ = call(syscall::HANDLE_CLOSE, *raw as u64, 0, 0);
+        }
+        -1
+    } else {
+        result
+    }
+}
+
+pub fn channel_receive_with_handles(
+    handle: Handle<ChannelObject>,
+    out: &mut [u8],
+    transferred: &mut [u32],
+) -> (isize, usize) {
+    let mut count = 0u64;
+    let result = unsafe {
+        raw_syscall(
+            syscall::CHANNEL_RECEIVE,
+            handle.raw as u64,
+            out.as_mut_ptr() as u64,
+            out.len() as u64,
+            (&mut count as *mut u64) as u64,
+            transferred.as_mut_ptr() as u64,
+            transferred.len() as u64,
+        ) as isize
+    };
+    (result, count as usize)
 }
 
 pub fn memory_map(address: usize, length: usize, permissions: u64) -> Option<usize> {

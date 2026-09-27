@@ -16,6 +16,8 @@ struct PipeCore {
     state: SpinLock<PipeState>,
     readers: AtomicUsize,
     writers: AtomicUsize,
+    readable: crate::task::wait::WaitQueue,
+    writable: crate::task::wait::WaitQueue,
 }
 
 pub struct PipeReader {
@@ -38,6 +40,8 @@ impl PipeReader {
             }),
             readers: AtomicUsize::new(1),
             writers: AtomicUsize::new(1),
+            readable: crate::task::wait::WaitQueue::new(),
+            writable: crate::task::wait::WaitQueue::new(),
         });
         (
             Arc::new(Self {
@@ -63,13 +67,18 @@ impl PipeReader {
         }
         state.head = (state.head + count) % CAPACITY;
         state.length -= count;
+        drop(state);
+        self.core.writable.wake_all();
         Some(count)
     }
+
+    pub fn wait_queue(&self) -> &crate::task::wait::WaitQueue { &self.core.readable }
 }
 
 impl Drop for PipeReader {
     fn drop(&mut self) {
         self.core.readers.fetch_sub(1, Ordering::AcqRel);
+        self.core.writable.wake_all();
     }
 }
 
@@ -92,13 +101,18 @@ impl PipeWriter {
             state.bytes[(tail + index) % CAPACITY] = *byte;
         }
         state.length += count;
+        drop(state);
+        self.core.readable.wake_all();
         Ok(Some(count))
     }
+
+    pub fn wait_queue(&self) -> &crate::task::wait::WaitQueue { &self.core.writable }
 }
 
 impl Drop for PipeWriter {
     fn drop(&mut self) {
         self.core.writers.fetch_sub(1, Ordering::AcqRel);
+        self.core.readable.wake_all();
     }
 }
 

@@ -8,9 +8,12 @@ impl Capabilities {
     pub const DEVICE_QUERY: Self = Self(1 << 3);
     pub const CONFIG_READ: Self = Self(1 << 4);
     pub const CONFIG_WRITE: Self = Self(1 << 5);
+    /// Reserved for identity-management policy. Current User/Group APIs do not
+    /// enforce this bit yet; callers must not treat it as an authorization gate.
     pub const IDENTITY_ADMIN: Self = Self(1 << 6);
-    pub const ALL_BOOTSTRAP: Self = Self((1 << 6) - 1);
-    pub const ALL_PRIVILEGED: Self = Self((1 << 7) - 1);
+    pub const NETWORK: Self = Self(1 << 7);
+    pub const ALL_BOOTSTRAP: Self = Self(((1 << 6) - 1) | Self::NETWORK.0);
+    pub const ALL_PRIVILEGED: Self = Self(Self::ALL_BOOTSTRAP.0 | Self::IDENTITY_ADMIN.0);
     pub const fn contains(self, right: Self) -> bool {
         self.0 & right.0 == right.0
     }
@@ -19,6 +22,9 @@ impl Capabilities {
 #[derive(Clone, Copy, Debug)]
 pub struct SecurityContext {
     pub capabilities: Capabilities,
+    /// Policy metadata only at this stage. Filesystem ACL and syscall
+    /// capability checks are enforced separately; this flag does not currently
+    /// impose path, resource, or syscall restrictions by itself.
     pub application_sandboxed: bool,
 }
 

@@ -70,7 +70,18 @@ enum sbos_syscall {
     SBOS_POSIX_IOCTL = 60,
     SBOS_POSIX_EXECVE = 61,
     SBOS_POSIX_UMASK = 62,
-    SBOS_POSIX_RENAME = 63
+    SBOS_POSIX_RENAME = 63,
+    SBOS_DIRECTORY_CREATE = 64,
+    SBOS_DIRECTORY_REMOVE = 65,
+    SBOS_FILE_SYNC = 66,
+    SBOS_THREAD_SLEEP = 67,
+    SBOS_CLOCK_GETTIME = 68,
+    SBOS_POSIX_SOCKET = 69,
+    SBOS_POSIX_BIND = 70,
+    SBOS_POSIX_CONNECT = 71,
+    SBOS_POSIX_SENDTO = 72,
+    SBOS_POSIX_RECVFROM = 73,
+    SBOS_POSIX_NETWORK_CONFIG = 74
 };
 
 static inline int64_t sbos_call6(uint64_t number, uint64_t a0, uint64_t a1,
@@ -84,6 +95,32 @@ static inline int64_t sbos_call6(uint64_t number, uint64_t a0, uint64_t a1,
                      : "D"(a0), "S"(a1), "d"(a2), "r"(r10), "r"(r8), "r"(r9)
                      : "rcx", "r11", "memory", "cc");
     return (int64_t)number;
+}
+
+static inline int64_t sbos_channel_send_handles(sbos_handle_t channel,
+                                                 const void *payload,
+                                                 size_t payload_length,
+                                                 const sbos_handle_t *handles,
+                                                 size_t handle_count) {
+    return sbos_call6(SBOS_CHANNEL_SEND, channel, (uint64_t)(uintptr_t)payload,
+                      payload_length, (uint64_t)(uintptr_t)handles,
+                      handle_count, 0);
+}
+
+static inline int64_t sbos_channel_receive_handles(sbos_handle_t channel,
+                                                    void *payload,
+                                                    size_t payload_capacity,
+                                                    sbos_handle_t *handles,
+                                                    size_t handle_capacity,
+                                                    size_t *handle_count) {
+    return sbos_call6(SBOS_CHANNEL_RECEIVE, channel, (uint64_t)(uintptr_t)payload,
+                      payload_capacity, (uint64_t)(uintptr_t)handle_count,
+                      (uint64_t)(uintptr_t)handles, handle_capacity);
+}
+
+static inline int64_t sbos_config_watch(const char *prefix, size_t length) {
+    return sbos_call6(SBOS_CONFIG_WATCH, (uint64_t)(uintptr_t)prefix, length,
+                      0, 0, 0, 0);
 }
 
 #endif

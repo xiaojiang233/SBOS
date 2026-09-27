@@ -1,6 +1,17 @@
 use alloc::string::String;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MountId(pub u64);
+
+/// A node identity is scoped by its mounted filesystem. The backend-local node
+/// number alone must never escape into an open File or Directory object.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NodeRef {
+    pub mount_id: MountId,
+    pub node_id: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NodeId(pub [u8; 16]);
 impl NodeId {
     pub const fn tmpfs(id: u64) -> Self {

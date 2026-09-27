@@ -50,17 +50,32 @@ utilities, replaces a file with `mv`, and runs the POSIX probe:
 the QEMU process it starts. See the generated transcript for the exact output
 of the current build.
 
-The verified transcript starts with `bash-5.3#`, reports Bash
+The verified shell smoke transcript starts with `bash-5.3#`, reports Bash
 `5.3.20(...)-release`, and shows `pwd` as `/Users/Root`. `ls /Applications`
-lists Bash, the C utilities and `posix-probe`, with no Rust shell entry. `mv`
-replaces an existing target, `cat` reads the replacement contents, and the
-POSIX probe reports successful `rename`, `fork`/pipe/`waitpid`, and `execve`
-with argv/envp replacement. Bash accepts another command after the probe and
-exits cleanly.
+lists Bash, the selected Coreutils applets, the C utilities and `posix-probe`,
+with no Rust shell entry. GNU `ls`, `cat`, and `printf` run as external Ring 3
+programs. `mv` replaces an existing target, `cat` reads the replacement
+contents, and the POSIX probe reports successful `rename`,
+`fork`/pipe/`waitpid`, and `execve` with argv/envp replacement. Bash accepts
+another command after the probe and exits cleanly.
+
+A separate time smoke boots the same image and checks GNU `date -u` in both
+calendar and epoch forms. The kernel reports a valid CMOS RTC epoch, and the
+epoch advances with PIT ticks. The new POSIX syscall backs
+`clock_gettime(CLOCK_REALTIME)`, `clock_gettime(CLOCK_MONOTONIC)`, `time()`, and
+`gettimeofday()`; realtime is explicitly unavailable (`ENODATA`) if no usable
+RTC is present.
+
+The Coreutils 9.12 profile currently includes `[`, `basename`, `cat`, `date`,
+`dirname`, `env`, `false`, `head`, `ls`, `printenv`, `printf`, `pwd`, `tail`,
+`tee`, `test`, `tr`, `true`, `wc`, and `yes`. Commands that need the missing
+incomplete TTY/volume queries, including `stty`, `df`, and `du`, are not
+included. The time implementation assumes the CMOS RTC is configured as UTC;
+regional timezone data and daylight-saving rules are not available.
 
 ## Current C runtime gaps
 
-`gettimeofday`, `mkdir`, `chmod` and `fchmod` explicitly return `ENOSYS` where
-their kernel operations are not available. `setlocale` supports the C/POSIX
-locale only. These are tracked as unsupported APIs rather than successful
-placeholder operations.
+`mkdir`, `chmod` and `fchmod` explicitly return `ENOSYS` where their kernel
+operations are not available. `setlocale` supports the C/POSIX locale only.
+These are tracked as unsupported APIs rather than successful placeholder
+operations.

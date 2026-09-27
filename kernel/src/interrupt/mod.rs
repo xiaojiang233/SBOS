@@ -52,7 +52,11 @@ pub extern "C" fn trap_dispatch(frame: *mut TrapFrame) -> *mut TrapFrame {
             unsafe {
                 out8(0x20, 0x20);
             }
-            crate::task::scheduler::on_timer(frame)
+            let next_frame = crate::task::scheduler::on_timer(frame);
+            crate::task::process::reap_orphans();
+            #[cfg(feature = "network-stack")]
+            crate::network::poll();
+            next_frame
         }
         36 => {
             crate::drivers::serial::handle_irq();
@@ -66,27 +70,43 @@ pub extern "C" fn trap_dispatch(frame: *mut TrapFrame) -> *mut TrapFrame {
     }
 }
 
-fn exception(frame: &TrapFrame) -> ! {
+fn exception(frame: &mut TrapFrame) -> *mut TrapFrame {
+    let from_user = frame.cs & 3 == 3;
+    let current_thread = crate::task::scheduler::current();
+    let current_process = crate::task::process::current();
+    let pid = current_process.as_ref().map(|process| process.pid).unwrap_or(0);
+    let tid = current_thread.as_ref().map(|thread| thread.tid).unwrap_or(0);
     if frame.vector == 14 {
         let address: u64;
         unsafe {
             asm!("mov {}, cr2",out(reg)address,options(nomem,nostack,preserves_flags));
         }
-        crate::kprintln!(
-            "PAGE FAULT addr={:#x} error={:#x} rip={:#x} cs={:#x}",
-            address,
-            frame.error,
-            frame.rip,
-            frame.cs
-        );
+        if from_user {
+            crate::kprintln!("USER PAGE FAULT pid={} tid={} addr={:#x} rip={:#x} error={:#x}",
+                pid, tid, address, frame.rip, frame.error);
+        } else {
+            crate::kprintln!("KERNEL PAGE FAULT pid={} tid={} addr={:#x} error={:#x} rip={:#x} cs={:#x}",
+                pid, tid, address, frame.error, frame.rip, frame.cs);
+        }
     } else {
-        crate::kprintln!(
-            "CPU EXCEPTION vector={} error={:#x} rip={:#x} cs={:#x}",
-            frame.vector,
-            frame.error,
-            frame.rip,
-            frame.cs
-        );
+        crate::kprintln!("{} CPU EXCEPTION pid={} tid={} vector={} error={:#x} rip={:#x} cs={:#x}",
+            if from_user { "USER" } else { "KERNEL" },
+            pid, tid, frame.vector, frame.error, frame.rip, frame.cs);
     }
-    crate::panic_halt()
+    if !from_user {
+        crate::panic_halt();
+    }
+
+    let process_id = current_thread.as_ref().map(|thread| thread.process_id).unwrap_or(pid);
+    if let Some(process) = current_process {
+        let signal = match frame.vector {
+            0 => 8,       // SIGFPE
+            3 => 5,       // SIGTRAP
+            6 => 4,       // SIGILL
+            13 | 14 => 11, // SIGSEGV
+            _ => 7,       // SIGBUS as the generic memory/CPU fault
+        };
+        process.terminate_signal(signal);
+    }
+    crate::task::scheduler::exit_process(process_id, frame)
 }

@@ -7,6 +7,7 @@ pub enum FdKind {
     File = 3,
     PipeRead = 4,
     PipeWrite = 5,
+    SocketUdp = 6,
 }
 
 #[derive(Clone, Copy)]
@@ -17,7 +18,7 @@ pub struct FdEntry {
     pub descriptor_flags: u32,
 }
 
-const EMPTY: FdEntry = FdEntry {
+pub const CLOSED_FD: FdEntry = FdEntry {
     handle: 0,
     kind: FdKind::Closed,
     status_flags: 0,
@@ -31,7 +32,7 @@ pub struct FdTable {
 
 impl FdTable {
     pub const fn new() -> Self {
-        let mut entries = [EMPTY; 128];
+        let mut entries = [CLOSED_FD; 128];
         entries[0] = FdEntry {
             handle: 0,
             kind: FdKind::ConsoleRead,
@@ -76,25 +77,36 @@ impl FdTable {
             return Err("file descriptor is closed");
         }
         let previous = *slot;
-        *slot = EMPTY;
+        *slot = CLOSED_FD;
         Ok(previous)
     }
 
-    pub fn close_on_exec(&mut self, handles: &mut [u32; 128]) -> usize {
+    pub fn close_on_exec(&mut self, closed: &mut [FdEntry; 128]) -> usize {
         let mut count = 0;
         for entry in &mut self.entries {
             if entry.kind != FdKind::Closed && entry.descriptor_flags & 1 != 0 {
-                if entry.handle != 0 {
-                    handles[count] = entry.handle;
-                    count += 1;
-                }
-                *entry = EMPTY;
+                closed[count] = *entry;
+                count += 1;
+                *entry = CLOSED_FD;
             }
         }
         count
     }
 
-    pub fn clear(&mut self) {
-        self.entries.fill(EMPTY);
+    pub fn collect_socket_ids(&self, ids: &mut [u32; 128]) -> usize {
+        let mut count = 0;
+        for entry in &self.entries {
+            if entry.kind == FdKind::SocketUdp {
+                ids[count] = entry.handle;
+                count += 1;
+            }
+        }
+        count
+    }
+
+    pub fn clear_and_collect_sockets(&mut self, ids: &mut [u32; 128]) -> usize {
+        let count = self.collect_socket_ids(ids);
+        self.entries.fill(CLOSED_FD);
+        count
     }
 }

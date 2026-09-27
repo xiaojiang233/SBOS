@@ -18,6 +18,7 @@ use crate::task::{
     thread::{self, Thread},
 };
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::arch::asm;
 use core::fmt::{self, Write};
 
@@ -87,6 +88,10 @@ pub enum NativeCall {
     PipeRead = 43,
     PipeWrite = 44,
     ProcessFork = 45,
+    DirectoryCreate = 64,
+    DirectoryRemove = 65,
+    FileSync = 66,
+    ThreadSleep = 67,
 }
 
 struct UserWriter<'a> {
@@ -209,7 +214,7 @@ fn copy_stat_to_user(
 
 pub(crate) fn handle_metadata(raw: u32, process: &Arc<Process>) -> Result<crate::fs::vnode::VNodeMetadata, isize> {
     let object_type = process.handles.lock().object_type(raw).ok_or(ERR_NOT_FOUND)?;
-    let node_id = match object_type {
+    let node = match object_type {
         crate::object::ObjectType::File => {
             let handle = unsafe { Handle::<FileObject>::from_raw(raw) };
             process
@@ -217,7 +222,7 @@ pub(crate) fn handle_metadata(raw: u32, process: &Arc<Process>) -> Result<crate:
                 .lock()
                 .get(handle, AccessRights::NONE)
                 .map_err(|_| ERR_DENIED)?
-                .node_id
+                .node
         }
         crate::object::ObjectType::Directory => {
             let handle = unsafe { Handle::<DirectoryObject>::from_raw(raw) };
@@ -226,16 +231,20 @@ pub(crate) fn handle_metadata(raw: u32, process: &Arc<Process>) -> Result<crate:
                 .lock()
                 .get(handle, AccessRights::NONE)
                 .map_err(|_| ERR_DENIED)?
-                .node_id
+                .node
         }
         _ => return Err(ERR_INVALID),
     };
-    vfs::metadata_by_id(node_id).ok_or(ERR_NOT_FOUND)
+    vfs::metadata_ref(node).ok_or(ERR_NOT_FOUND)
 }
 
 /// Wait at a kernel scheduling boundary. Timer interrupts can switch to another
 /// ready thread while this one sleeps; zero polls once and `u64::MAX` waits forever.
-pub(crate) fn wait_until(timeout_ticks: u64, mut ready: impl FnMut() -> Option<isize>) -> isize {
+pub(crate) fn wait_until(
+    wait_queue: &crate::task::wait::WaitQueue,
+    timeout_ticks: u64,
+    mut ready: impl FnMut() -> Option<isize>,
+) -> isize {
     if let Some(result) = ready() {
         return result;
     }
@@ -243,18 +252,36 @@ pub(crate) fn wait_until(timeout_ticks: u64, mut ready: impl FnMut() -> Option<i
         return ERR_WOULD_BLOCK;
     }
     let start = scheduler::tick_count();
+    let Some(thread) = scheduler::current() else { return ERR_INVALID };
+    let tid = thread.tid;
     loop {
+        let elapsed = scheduler::tick_count().wrapping_sub(start);
+        if timeout_ticks != u64::MAX && elapsed >= timeout_ticks {
+            wait_queue.remove(tid);
+            return ERR_TIMED_OUT;
+        }
+        wait_queue.register(tid);
+        if let Some(result) = ready() {
+            wait_queue.remove(tid);
+            return result;
+        }
+        let remaining = if timeout_ticks == u64::MAX {
+            u64::MAX
+        } else {
+            timeout_ticks - elapsed
+        };
+        if scheduler::block_current(remaining).is_err() {
+            wait_queue.remove(tid);
+            return ERR_INVALID;
+        }
         crate::interrupt::enable();
         unsafe {
             asm!("hlt", options(nomem, nostack));
         }
         crate::interrupt::disable();
         if let Some(result) = ready() {
+            wait_queue.remove(tid);
             return result;
-        }
-        if timeout_ticks != u64::MAX && scheduler::tick_count().wrapping_sub(start) >= timeout_ticks
-        {
-            return ERR_TIMED_OUT;
         }
     }
 }
@@ -493,6 +520,7 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
     let a2 = frame.rdx;
     let a3 = frame.r10;
     let a4 = frame.r8;
+    let a5 = frame.r9;
     let result: Result<isize, isize> = (|| {
         Ok(match number {
             0 => {
@@ -520,8 +548,8 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 let mut path = [0u8; 512];
                 let path = copy_string(a0, a1 as usize, &mut path)?;
                 let cwd = process.cwd();
-                let id = vfs::fs().resolve(path, &cwd).map_err(|_| ERR_NOT_FOUND)?;
-                if vfs::fs().kind(id) != Some(crate::fs::vnode::VNodeKind::File) {
+                let (node, filesystem) = vfs::lookup(path, &cwd).map_err(|_| ERR_NOT_FOUND)?;
+                if filesystem.kind(node.node_id) != Some(crate::fs::vnode::VNodeKind::File) {
                     return Err(ERR_INVALID);
                 }
                 let readable = a2 & 1 != 0;
@@ -534,15 +562,15 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 {
                     return Err(ERR_DENIED);
                 }
-                let filesystem = vfs::fs();
                 let access = (if readable { crate::fs::vnode::Acl::READ } else { 0 })
                     | (if writable { crate::fs::vnode::Acl::WRITE } else { 0 });
-                if process.uid != 0 && !filesystem.can_access(id, process.uid, process.gid, access) {
+                if process.uid != 0 && !filesystem.can_access(node.node_id, process.uid, process.gid, access) {
                     return Err(ERR_DENIED);
                 }
-                let file = Arc::new(FileObject::new(id, readable, writable));
+                let file = Arc::new(FileObject::new(node, readable, writable));
                 let rights = AccessRights(
                     AccessRights::DUPLICATE.0
+                        | AccessRights::TRANSFER.0
                         | (if readable { AccessRights::READ.0 } else { 0 })
                         | (if writable { AccessRights::WRITE.0 } else { 0 }),
                 );
@@ -569,7 +597,7 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                     .map_err(|_| ERR_DENIED)?;
                 let mut bytes = [0u8; MAX_COPY];
                 let count = file.read(&mut bytes[..len]).map_err(|_| ERR_INVALID)?;
-                vmm::copy_to_user(a1, &bytes[..count]).map_err(|_| ERR_INVALID)?;
+                vmm::copy_to_user(a1, &bytes[..count as usize]).map_err(|_| ERR_INVALID)?;
                 count as isize
             }
             3 => {
@@ -622,7 +650,7 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                             .lock()
                             .get(h, AccessRights::WAIT)
                             .map_err(|_| ERR_DENIED)?;
-                        wait_until(a1, || {
+                        wait_until(target.exit_wait_queue(), a1, || {
                             target.has_exited().then(|| {
                                 target
                                     .exit_status
@@ -638,7 +666,7 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                             .lock()
                             .get(h, AccessRights::WAIT)
                             .map_err(|_| ERR_DENIED)?;
-                        wait_until(a1, || event.is_signaled().then_some(0))
+                        wait_until(event.wait_queue(), a1, || event.is_signaled().then_some(0))
                     }
                     _ => return Err(ERR_INVALID),
                 };
@@ -659,7 +687,8 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                             AccessRights::READ.0
                                 | AccessRights::WRITE.0
                                 | AccessRights::WAIT.0
-                                | AccessRights::DUPLICATE.0,
+                                | AccessRights::DUPLICATE.0
+                                | AccessRights::TRANSFER.0,
                         ),
                     )
                     .map_err(|_| ERR_NO_MEMORY)?;
@@ -672,7 +701,8 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                             AccessRights::READ.0
                                 | AccessRights::WRITE.0
                                 | AccessRights::WAIT.0
-                                | AccessRights::DUPLICATE.0,
+                                | AccessRights::DUPLICATE.0
+                                | AccessRights::TRANSFER.0,
                         ),
                     )
                     .map_err(|_| ERR_NO_MEMORY)?;
@@ -686,26 +716,50 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
             9 => {
                 let process = current()?;
                 let len = a2 as usize;
-                if len > 256 {
+                let transfer_count = a4 as usize;
+                if len > 256 || transfer_count > 8 {
                     return Err(ERR_INVALID);
                 }
                 let mut bytes = [0u8; 256];
                 copy_in(a1, len, &mut bytes)?;
+                let mut raw_handles = [0u32; 8];
+                if transfer_count != 0 {
+                    let handle_bytes = transfer_count * core::mem::size_of::<u32>();
+                    copy_in(a3, handle_bytes, unsafe {
+                        core::slice::from_raw_parts_mut(raw_handles.as_mut_ptr().cast::<u8>(), handle_bytes)
+                    })?;
+                }
+                let handles = process.handles.lock();
+                let mut transfers = Vec::new();
+                transfers.try_reserve_exact(transfer_count).map_err(|_| ERR_NO_MEMORY)?;
+                for raw in raw_handles.iter().take(transfer_count) {
+                    transfers.push(handles.export_transfer(*raw).map_err(|_| ERR_DENIED)?);
+                }
+                drop(handles);
                 let h = unsafe { Handle::<crate::ipc::ChannelEndpoint>::from_raw(a0 as u32) };
                 let channel = process
                     .handles
                     .lock()
                     .get(h, AccessRights::WRITE)
                     .map_err(|_| ERR_DENIED)?;
-                channel
-                    .send(&bytes[..len])
-                    .map(|_| len as isize)
-                    .map_err(|_| ERR_WOULD_BLOCK)?
+                wait_until(channel.writable_wait_queue(), u64::MAX, || {
+                    match channel.send_with_transfers(&bytes[..len], &transfers) {
+                        Ok(()) => Some(len as isize),
+                        Err("channel queue is full") => None,
+                        Err(_) => Some(ERR_INVALID),
+                    }
+                })
             }
             10 => {
                 let process = current()?;
                 let len = (a2 as usize).min(256);
+                let handle_capacity = (a5 as usize).min(8);
+                if a5 as usize > 8 { return Err(ERR_INVALID); }
                 check_out(a1, len)?;
+                check_out(a3, 8)?;
+                if handle_capacity != 0 {
+                    check_out(a4, handle_capacity * core::mem::size_of::<u32>())?;
+                }
                 let h = unsafe { Handle::<crate::ipc::ChannelEndpoint>::from_raw(a0 as u32) };
                 let channel = process
                     .handles
@@ -713,11 +767,41 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                     .get(h, AccessRights::READ)
                     .map_err(|_| ERR_DENIED)?;
                 let mut bytes = [0u8; 256];
-                let count = channel
-                    .receive(&mut bytes[..len])
-                    .map_err(|_| ERR_WOULD_BLOCK)?;
-                vmm::copy_to_user(a1, &bytes[..count]).map_err(|_| ERR_INVALID)?;
-                count as isize
+                let mut received_handles = [0u32; 8];
+                let mut received_handle_count = 0usize;
+                let count = wait_until(channel.readable_wait_queue(), u64::MAX, || {
+                    let mut table = process.handles.lock();
+                    match channel.receive_with_transfers(
+                        &mut bytes[..len],
+                        &mut table,
+                        &mut received_handles[..handle_capacity],
+                    ) {
+                        Ok((count, handle_count)) => {
+                            received_handle_count = handle_count;
+                            Some(count as isize)
+                        }
+                        Err("channel has no message") => None,
+                        Err(_) => Some(ERR_INVALID),
+                    }
+                });
+                if count < 0 { return Err(count); }
+                if vmm::copy_to_user(a1, &bytes[..count as usize]).is_err()
+                    || (received_handle_count != 0 && vmm::copy_to_user(a4, unsafe {
+                        core::slice::from_raw_parts(
+                            received_handles.as_ptr().cast::<u8>(),
+                            received_handle_count * core::mem::size_of::<u32>(),
+                        )
+                    }).is_err())
+                {
+                    let mut handles = process.handles.lock();
+                    for raw in received_handles.iter().take(received_handle_count) {
+                        let _ = handles.close(*raw);
+                    }
+                    return Err(ERR_INVALID);
+                }
+                vmm::copy_to_user(a3, &(received_handle_count as u64).to_ne_bytes())
+                    .map_err(|_| ERR_INVALID)?;
+                count
             }
             11 => {
                 let process = current()?;
@@ -810,15 +894,15 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 let mut path = [0u8; 512];
                 let path = copy_string(a0, a1 as usize, &mut path)?;
                 let cwd = process.cwd();
-                let id = vfs::fs().resolve(path, &cwd).map_err(|_| ERR_NOT_FOUND)?;
-                if vfs::fs().kind(id) != Some(crate::fs::vnode::VNodeKind::Directory) {
+                let (node, filesystem) = vfs::lookup(path, &cwd).map_err(|_| ERR_NOT_FOUND)?;
+                if filesystem.kind(node.node_id) != Some(crate::fs::vnode::VNodeKind::Directory) {
                     return Err(ERR_INVALID);
                 }
-                let directory = Arc::new(DirectoryObject::new(id));
+                let directory = Arc::new(DirectoryObject::new(node));
                 let handle = process
                     .handles
                     .lock()
-                    .insert(directory, AccessRights::FILE_READ)
+                    .insert(directory, AccessRights(AccessRights::FILE_READ.0 | AccessRights::TRANSFER.0))
                     .map(|h| h.raw() as isize)
                     .map_err(|_| ERR_NO_MEMORY)?;
                 handle
@@ -837,8 +921,7 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                     .get(h, AccessRights::READ)
                     .map_err(|_| ERR_DENIED)?;
                 let mut bytes = [0u8; MAX_COPY];
-                let count = vfs::fs()
-                    .read_directory(dir.node_id, &mut bytes[..len])
+                let count = vfs::read_directory(dir.node, &mut bytes[..len])
                     .map_err(|_| ERR_INVALID)?;
                 vmm::copy_to_user(a1, &bytes[..count]).map_err(|_| ERR_INVALID)?;
                 count as isize
@@ -848,9 +931,7 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 let mut path = [0u8; 512];
                 let path = copy_string(a0, a1 as usize, &mut path)?;
                 let cwd = process.cwd();
-                let target = vfs::fs()
-                    .change_directory(&cwd, path)
-                    .map_err(|_| ERR_NOT_FOUND)?;
+                let target = vfs::change_directory(&cwd, path).map_err(|_| ERR_NOT_FOUND)?;
                 process.chdir(target);
                 0
             }
@@ -936,7 +1017,8 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                         AccessRights(
                             AccessRights::WAIT.0
                                 | AccessRights::SIGNAL.0
-                                | AccessRights::DUPLICATE.0,
+                                | AccessRights::DUPLICATE.0
+                                | AccessRights::TRANSFER.0,
                         ),
                     )
                     .map(|handle| handle.raw() as isize)
@@ -1157,10 +1239,10 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 check_out(a0, 8)?;
                 let (reader, writer) = crate::ipc::pipe::PipeReader::pair();
                 let reader_handle = process.handles.lock()
-                    .insert(reader, AccessRights(AccessRights::READ.0 | AccessRights::DUPLICATE.0))
+                    .insert(reader, AccessRights(AccessRights::READ.0 | AccessRights::DUPLICATE.0 | AccessRights::TRANSFER.0))
                     .map_err(|_| ERR_NO_MEMORY)?;
                 let writer_handle = match process.handles.lock()
-                    .insert(writer, AccessRights(AccessRights::WRITE.0 | AccessRights::DUPLICATE.0))
+                    .insert(writer, AccessRights(AccessRights::WRITE.0 | AccessRights::DUPLICATE.0 | AccessRights::TRANSFER.0))
                 {
                     Ok(handle) => handle,
                     Err(_) => {
@@ -1189,7 +1271,7 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 let reader = process.handles.lock().get(handle, AccessRights::READ)
                     .map_err(|_| ERR_DENIED)?;
                 let mut bytes = [0u8; MAX_COPY];
-                let count = wait_until(u64::MAX, || {
+                let count = wait_until(reader.wait_queue(), u64::MAX, || {
                     reader.try_read(&mut bytes[..length]).map(|count| count as isize)
                 });
                 if count < 0 { return Err(count); }
@@ -1205,7 +1287,7 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 let handle = unsafe { Handle::<crate::ipc::pipe::PipeWriter>::from_raw(a0 as u32) };
                 let writer = process.handles.lock().get(handle, AccessRights::WRITE)
                     .map_err(|_| ERR_DENIED)?;
-                wait_until(u64::MAX, || match writer.try_write(input) {
+                wait_until(writer.wait_queue(), u64::MAX, || match writer.try_write(input) {
                     Ok(Some(count)) => Some(count as isize),
                     Ok(None) => None,
                     Err(()) => Some(ERR_BROKEN_PIPE),
@@ -1242,6 +1324,66 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 }
                 child.pid as isize
             }
+            64 => {
+                let process = current()?;
+                if !process.security.capabilities.contains(crate::security::Capabilities::FILE_WRITE) {
+                    return Err(ERR_DENIED);
+                }
+                let mut storage = [0u8; 512];
+                let path = copy_string(a0, a1 as usize, &mut storage)?;
+                let cwd = process.cwd();
+                let (parent, filesystem) = vfs::parent_node(path, &cwd).map_err(|_| ERR_NOT_FOUND)?;
+                if process.uid != 0
+                    && !filesystem.can_access(
+                        parent.node_id,
+                        process.uid,
+                        process.gid,
+                        crate::fs::vnode::Acl::WRITE | crate::fs::vnode::Acl::EXECUTE,
+                    )
+                {
+                    return Err(ERR_DENIED);
+                }
+                vfs::create_directory(path, &cwd).map_err(|_| ERR_INVALID)?;
+                0
+            }
+            65 => {
+                let process = current()?;
+                if !process.security.capabilities.contains(crate::security::Capabilities::FILE_WRITE) {
+                    return Err(ERR_DENIED);
+                }
+                let mut storage = [0u8; 512];
+                let path = copy_string(a0, a1 as usize, &mut storage)?;
+                let cwd = process.cwd();
+                let (node, filesystem) = vfs::lookup(path, &cwd).map_err(|_| ERR_NOT_FOUND)?;
+                if filesystem.kind(node.node_id) != Some(crate::fs::vnode::VNodeKind::Directory) {
+                    return Err(ERR_INVALID);
+                }
+                if node.node_id == filesystem.resolve("/", "/").map_err(|_| ERR_INVALID)? {
+                    return Err(ERR_DENIED);
+                }
+                let (parent, parent_fs) = vfs::parent_node(path, &cwd).map_err(|_| ERR_NOT_FOUND)?;
+                if process.uid != 0
+                    && (node.mount_id != parent.mount_id
+                        || !parent_fs.can_access(
+                            parent.node_id,
+                            process.uid,
+                            process.gid,
+                            crate::fs::vnode::Acl::WRITE | crate::fs::vnode::Acl::EXECUTE,
+                        ))
+                {
+                    return Err(ERR_DENIED);
+                }
+                vfs::remove(path, &cwd).map_err(|_| ERR_INVALID)?;
+                0
+            }
+            66 => crate::posix::file_sync(a0 as usize)?,
+            67 => {
+                if a0 > i64::MAX as u64 || a1 >= 1_000_000_000 { return Err(-22); }
+                let duration = (a0 as u128) * 100
+                    + ((a1 as u128 + 9_999_999) / 10_000_000);
+                if duration > i64::MAX as u128 { return Err(-75); }
+                crate::posix::thread_sleep(duration as u64)?
+            }
             40 => {
                 let parent = current()?;
                 let requested_pid = a0 as i64;
@@ -1259,19 +1401,21 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 if candidates.is_empty() {
                     return Err(ERR_NO_CHILD);
                 }
-                let mut child_status = 0i32;
+                let mut child_status = 0u32;
                 let completed_pid = if options & 1 != 0 {
                     candidates.iter().find_map(|child| {
                         child.reap_exit_status().map(|status| {
-                            child_status = status;
+                            process::remove_reaped(child.pid);
+                            child_status = encode_wait_status(status, child.exit_signal());
                             child.pid as isize
                         })
                     }).unwrap_or(0)
                 } else {
-                    wait_until(u64::MAX, || {
+                    wait_until(parent.child_wait_queue(), u64::MAX, || {
                         candidates.iter().find_map(|child| {
                             child.reap_exit_status().map(|status| {
-                                child_status = status;
+                                process::remove_reaped(child.pid);
+                                child_status = encode_wait_status(status, child.exit_signal());
                                 child.pid as isize
                             })
                         })
@@ -1281,23 +1425,30 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                     return Err(completed_pid);
                 }
                 if completed_pid != 0 && a1 != 0 {
-                    let status = (child_status as u32 & 0xff) << 8;
                     vmm::copy_to_user(a1, unsafe {
                         core::slice::from_raw_parts(
-                            (&status as *const u32).cast::<u8>(),
+                            (&child_status as *const u32).cast::<u8>(),
                             core::mem::size_of::<u32>(),
                         )
                     }).map_err(|_| ERR_FAULT)?;
                 }
                 completed_pid
             }
-            46..=63 => crate::posix::dispatch(number, frame)?,
+            46..=63 | 68..=74 => crate::posix::dispatch(number, frame)?,
             _ => return Err(ERR_UNSUPPORTED),
         })
     })();
     match result {
         Ok(value) => Some(value),
         Err(error) => Some(error),
+    }
+}
+
+fn encode_wait_status(exit_code: i32, signal: i32) -> u32 {
+    if signal > 0 {
+        signal as u32 & 0x7f
+    } else {
+        (exit_code as u32 & 0xff) << 8
     }
 }
 

@@ -282,7 +282,7 @@ pub fn read(process_id: u64, output: &mut [u8]) -> usize {
         let input = if is_foreground(process_id) {
             // Either the PS/2 keyboard or the serial console can drive the
             // terminal, so a headless QEMU run can type at the shell too.
-            crate::drivers::keyboard::try_read_byte()
+            crate::drivers::read_key()
                 .or_else(crate::drivers::serial::try_read_byte)
         } else {
             None

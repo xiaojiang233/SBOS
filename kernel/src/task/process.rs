@@ -7,7 +7,16 @@ use crate::task::fd::FdTable;
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::any::Any;
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8, Ordering};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ProcessState {
+    Running = 0,
+    Exiting = 1,
+    Zombie = 2,
+    Reaped = 3,
+}
 
 pub struct AddressSpace {
     root: AtomicU64,
@@ -92,7 +101,11 @@ pub struct Process {
     pub pid: u64,
     pub parent_pid: u64,
     pub address_space: AddressSpace,
+    /// Currently accessed only from syscall/exception paths entered through
+    /// interrupt gates (IF clear). IRQ handlers must use irq-save access if
+    /// handle operations are ever moved into interrupt context.
     pub handles: SpinLock<HandleTable>,
+    /// File descriptor state follows the same interrupt-disabled entry rule.
     pub fds: SpinLock<FdTable>,
     pub security: SecurityContext,
     pub uid: u32,
@@ -100,8 +113,11 @@ pub struct Process {
     pub current_directory: SpinLock<String>,
     pub threads: SpinLock<alloc::vec::Vec<Arc<Thread>>>,
     pub exit_status: AtomicI32,
-    exited: AtomicBool,
-    reaped: AtomicBool,
+    exit_signal: AtomicI32,
+    exit_waiters: crate::task::wait::WaitQueue,
+    child_waiters: crate::task::wait::WaitQueue,
+    state: AtomicU8,
+    orphaned: AtomicBool,
     pub executable: SpinLock<String>,
     /// Process file creation mask, as reported by umask(2). SBFS takes new file
     /// permissions from the parent ACL, so this value records what programs ask
@@ -132,8 +148,11 @@ impl Process {
             current_directory: SpinLock::new(String::from("/")),
             threads: SpinLock::new(alloc::vec::Vec::new()),
             exit_status: AtomicI32::new(i32::MIN),
-            exited: AtomicBool::new(false),
-            reaped: AtomicBool::new(false),
+            exit_signal: AtomicI32::new(0),
+            exit_waiters: crate::task::wait::WaitQueue::new(),
+            child_waiters: crate::task::wait::WaitQueue::new(),
+            state: AtomicU8::new(ProcessState::Running as u8),
+            orphaned: AtomicBool::new(false),
             executable: SpinLock::new(String::from(executable)),
             file_mode_mask: AtomicU32::new(0o022),
             terminal_restore: SpinLock::new(None),
@@ -155,31 +174,88 @@ impl Process {
         *self.current_directory.lock() = path;
     }
     pub fn terminate(&self, status: i32) {
+        self.terminate_with(status, 0);
+    }
+
+    pub fn terminate_signal(&self, signal: i32) {
+        self.terminate_with(128 + signal, signal);
+    }
+
+    fn terminate_with(&self, status: i32, signal: i32) {
+        if self.state.compare_exchange(
+            ProcessState::Running as u8,
+            ProcessState::Exiting as u8,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ).is_err() {
+            return;
+        }
         self.exit_status.store(status, Ordering::Release);
-        self.exited.store(true, Ordering::Release);
+        self.exit_signal.store(signal, Ordering::Release);
         if crate::drivers::tty::is_foreground(self.pid) {
             if let Some(attributes) = self.terminal_restore.lock().take() {
                 let _ = crate::drivers::tty::set_attributes(attributes, 0);
             }
             crate::drivers::tty::set_foreground(self.parent_pid);
         }
-        self.fds.lock().clear();
+        let mut socket_ids = [0u32; 128];
+        let socket_count = self.fds.lock().clear_and_collect_sockets(&mut socket_ids);
+        #[cfg(feature = "network-stack")]
+        for id in socket_ids.iter().take(socket_count) {
+            crate::network::udp_release(*id);
+        }
+        #[cfg(not(feature = "network-stack"))]
+        let _ = socket_count;
         self.handles.lock().clear();
+        self.state.store(ProcessState::Zombie as u8, Ordering::Release);
+        self.exit_waiters.wake_all();
+        if let Some(parent) = by_pid(self.parent_pid) {
+            parent.child_waiters.wake_all();
+        }
+        mark_orphan_children(self.pid);
+    }
+
+    pub fn exit_signal(&self) -> i32 {
+        self.exit_signal.load(Ordering::Acquire)
     }
     pub fn has_exited(&self) -> bool {
-        self.exited.load(Ordering::Acquire)
+        self.state().ordinal() >= ProcessState::Zombie.ordinal()
     }
+    pub fn state(&self) -> ProcessState {
+        match self.state.load(Ordering::Acquire) {
+            1 => ProcessState::Exiting,
+            2 => ProcessState::Zombie,
+            3 => ProcessState::Reaped,
+            _ => ProcessState::Running,
+        }
+    }
+    pub fn exit_wait_queue(&self) -> &crate::task::wait::WaitQueue { &self.exit_waiters }
+    pub fn child_wait_queue(&self) -> &crate::task::wait::WaitQueue { &self.child_waiters }
     pub fn has_been_reaped(&self) -> bool {
-        self.reaped.load(Ordering::Acquire)
+        self.state() == ProcessState::Reaped
     }
     pub fn reap_exit_status(&self) -> Option<i32> {
-        if !self.has_exited() {
-            return None;
+        self.state.compare_exchange(
+            ProcessState::Zombie as u8,
+            ProcessState::Reaped as u8,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ).ok()?;
+        let status = self.exit_status.load(Ordering::Acquire);
+        let root = self.address_space.root();
+        if root != crate::memory::vmm::kernel_root() {
+            let _ = crate::memory::vmm::destroy_address_space(root);
         }
-        self.reaped
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .ok()
-            .map(|_| self.exit_status.load(Ordering::Acquire))
+        for thread in self.threads.lock().drain(..) {
+            if self.pid != 1 {
+                const STACK_PAGES: u64 = 16;
+                let base = thread.kernel_stack_top.saturating_sub(STACK_PAGES * crate::memory::pmm::PAGE_SIZE);
+                for page in 0..STACK_PAGES {
+                    let _ = crate::memory::pmm::free_frame(base + page * crate::memory::pmm::PAGE_SIZE);
+                }
+            }
+        }
+        Some(status)
     }
     pub fn user_ticks(&self) -> u64 {
         self.threads
@@ -201,7 +277,7 @@ static NEXT_PID: AtomicU64 = AtomicU64::new(1);
 static CURRENT: SpinLock<Option<Arc<Process>>> = SpinLock::new(None);
 static PROCESSES: SpinLock<alloc::vec::Vec<Arc<Process>>> = SpinLock::new(alloc::vec::Vec::new());
 pub fn init(root: u64, executable: &str) -> Arc<Process> {
-    PROCESSES.lock().clear();
+    PROCESSES.lock_irqsave().clear();
     let (uid, gid) = crate::user::default_credentials();
     let process = create_with_identity(root, executable, SecurityContext::for_uid(uid), 0, uid, gid);
     if let Some(account) = crate::user::account_by_uid(uid) {
@@ -243,7 +319,7 @@ pub fn create_with_identity(
         uid,
         gid,
     ));
-    PROCESSES.lock().push(process.clone());
+    PROCESSES.lock_irqsave().push(process.clone());
     process
 }
 pub fn fork_process(parent: &Arc<Process>, root: u64) -> Arc<Process> {
@@ -260,11 +336,19 @@ pub fn fork_process(parent: &Arc<Process>, root: u64) -> Arc<Process> {
     let inherited_handles = parent.handles.lock().clone();
     *process.handles.lock() = inherited_handles;
     *process.fds.lock() = parent.fds.lock().clone();
-    PROCESSES.lock().push(process.clone());
+    #[cfg(feature = "network-stack")]
+    {
+        let mut socket_ids = [0u32; 128];
+        let count = process.fds.lock().collect_socket_ids(&mut socket_ids);
+        for id in socket_ids.iter().take(count) {
+            let _ = crate::network::udp_retain(*id);
+        }
+    }
+    PROCESSES.lock_irqsave().push(process.clone());
     process
 }
 pub fn by_pid(pid: u64) -> Option<Arc<Process>> {
-    PROCESSES.lock().iter().find(|p| p.pid == pid).cloned()
+    PROCESSES.lock_irqsave().iter().find(|p| p.pid == pid && !p.has_been_reaped()).cloned()
 }
 pub fn current() -> Option<Arc<Process>> {
     let pid = super::scheduler::current().map(|t| t.process_id);
@@ -277,7 +361,7 @@ pub fn pid() -> u64 {
     current().map(|p| p.pid).unwrap_or(0)
 }
 pub fn all() -> alloc::vec::Vec<Arc<Process>> {
-    PROCESSES.lock().clone()
+    PROCESSES.lock_irqsave().clone()
 }
 pub fn children_of(parent_pid: u64) -> alloc::vec::Vec<Arc<Process>> {
     PROCESSES
@@ -286,4 +370,34 @@ pub fn children_of(parent_pid: u64) -> alloc::vec::Vec<Arc<Process>> {
         .filter(|process| process.parent_pid == parent_pid && !process.has_been_reaped())
         .cloned()
         .collect()
+}
+
+pub fn remove_reaped(pid: u64) {
+    PROCESSES.lock_irqsave().retain(|process| process.pid != pid || !process.has_been_reaped());
+}
+
+fn mark_orphan_children(parent_pid: u64) {
+    for process in PROCESSES.lock_irqsave().iter() {
+        if process.parent_pid == parent_pid && process.pid != parent_pid {
+            process.orphaned.store(true, Ordering::Release);
+        }
+    }
+}
+
+/// Reap detached zombies only after the timer has switched away from the
+/// terminating process, so its page tables and kernel stack are no longer live.
+pub fn reap_orphans() {
+    let candidates = PROCESSES.lock_irqsave().clone();
+    for process in candidates {
+        if process.orphaned.load(Ordering::Acquire)
+            && process.state() == ProcessState::Zombie
+            && process.reap_exit_status().is_some()
+        {
+            remove_reaped(process.pid);
+        }
+    }
+}
+
+impl ProcessState {
+    const fn ordinal(self) -> u8 { self as u8 }
 }

@@ -52,22 +52,28 @@ pub trait KernelObject: Any + Send + Sync {
 pub struct EventObject {
     header: ObjectHeader,
     signaled: core::sync::atomic::AtomicBool,
+    waiters: crate::task::wait::WaitQueue,
 }
 impl EventObject {
     pub fn new() -> Self {
         Self {
             header: ObjectHeader::new(ObjectType::Event),
             signaled: core::sync::atomic::AtomicBool::new(false),
+            waiters: crate::task::wait::WaitQueue::new(),
         }
     }
     pub fn signal(&self) {
         self.signaled.store(true, Ordering::Release);
+        self.waiters.wake_all();
     }
     pub fn reset(&self) {
         self.signaled.store(false, Ordering::Release);
     }
     pub fn is_signaled(&self) -> bool {
         self.signaled.load(Ordering::Acquire)
+    }
+    pub fn wait_queue(&self) -> &crate::task::wait::WaitQueue {
+        &self.waiters
     }
 }
 impl KernelObject for EventObject {

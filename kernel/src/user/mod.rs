@@ -64,7 +64,7 @@ pub fn init() -> Result<(), &'static str> {
     let filesystem = vfs::fs();
     let node_id = match filesystem.resolve(DB_PATH, "/") {
         Ok(id) => id,
-        Err(_) => vfs::create_file(DB_PATH, "/", false)?,
+        Err(_) => vfs::create_file(DB_PATH, "/", false)?.node_id,
     };
     if filesystem.kind(node_id) != Some(VNodeKind::File) {
         return Err("identity database path is not a file");

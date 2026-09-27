@@ -106,6 +106,15 @@ pub enum BlockError {
 }
 pub trait NetworkDevice: Send + Sync {
     fn mac_address(&self) -> [u8; 6];
+    fn transmit(&mut self, frame: &[u8]) -> Result<(), NetworkError>;
+    fn receive(&mut self, frame: &mut [u8]) -> Result<Option<usize>, NetworkError>;
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NetworkError {
+    InvalidFrame,
+    NotReady,
+    Busy,
+    Io,
 }
 pub trait AudioDevice: Send + Sync {
     fn sample_rate(&self) -> u32;
@@ -162,6 +171,19 @@ pub fn register_block_device(
         DeviceCapabilities(8),
     )));
     BLOCK_DEVICES.lock().push(device);
+}
+
+pub fn register_network_device(vendor: &str, model: &str, driver: &str) {
+    let mut devices = DEVICES.lock();
+    let id = devices.iter().map(|device| device.id.0).max().unwrap_or(0) + 1;
+    devices.push(Arc::new(DeviceObject::new(
+        id,
+        DeviceClass::Network,
+        vendor,
+        model,
+        driver,
+        DeviceCapabilities(16),
+    )));
 }
 
 pub fn block_devices() -> Vec<Arc<dyn BlockDevice>> {

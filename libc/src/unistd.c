@@ -62,6 +62,13 @@ int close(int fd) {
         SBOS_POSIX_CLOSE, (uint64_t)(uint32_t)fd, 0, 0, 0, 0, 0));
 }
 
+int fsync(int fd) {
+    return (int)__sbos_posix_checked_result(__sbos_syscall6(
+        SBOS_FILE_SYNC, (uint64_t)(uint32_t)fd, 0, 0, 0, 0, 0));
+}
+
+int fdatasync(int fd) { return fsync(fd); }
+
 int gethostname(char *name, size_t length) {
     static const char hostname[] = "sbos";
     if (name == 0) { errno = EFAULT; return -1; }
@@ -70,6 +77,10 @@ int gethostname(char *name, size_t length) {
     return 0;
 }
 
+/* The kernel's per-process descriptor table has a fixed capacity. */
+int getdtablesize(void) { return 128; }
+int getpagesize(void) { return 4096; }
+
 int unlink(const char *path) {
     size_t length;
     if (path == 0) { errno = EFAULT; return -1; }
@@ -77,6 +88,23 @@ int unlink(const char *path) {
     if (length > 512) { errno = ENAMETOOLONG; return -1; }
     return (int)__sbos_posix_checked_result(__sbos_syscall6(
         SBOS_POSIX_UNLINK, (uint64_t)(uintptr_t)path, length, 0, 0, 0, 0));
+}
+
+/* SBFS v1 does not have a hard-link object model. */
+int link(const char *existing_path, const char *new_path) {
+    (void)existing_path;
+    (void)new_path;
+    errno = ENOTSUP;
+    return -1;
+}
+
+int rmdir(const char *path) {
+    size_t length;
+    if (path == 0) { errno = EFAULT; return -1; }
+    length = path_length(path);
+    if (length > 512) { errno = ENAMETOOLONG; return -1; }
+    return (int)__sbos_checked_result(__sbos_syscall6(
+        SBOS_DIRECTORY_REMOVE, (uint64_t)(uintptr_t)path, length, 0, 0, 0, 0));
 }
 
 int dup(int fd) {
@@ -156,6 +184,47 @@ int execve(const char *path, char *const argv[], char *const envp[]) {
         SBOS_POSIX_EXECVE, (uint64_t)(uintptr_t)path,
         (uint64_t)(uintptr_t)argv, (uint64_t)(uintptr_t)envp,
         0, 0, 0));
+}
+
+int execvp(const char *file, char *const argv[]) {
+    const char *path;
+    const char *component;
+    size_t file_length;
+    int access_denied = 0;
+    if (file == 0 || argv == 0) { errno = EFAULT; return -1; }
+    if (strchr(file, '/') != 0) return execve(file, argv, environ);
+    file_length = strlen(file);
+    path = getenv("PATH");
+    if (path == 0) path = "/Applications";
+    component = path;
+    for (;;) {
+        const char *separator = strchr(component, ':');
+        size_t directory_length = separator != 0 ? (size_t)(separator - component) : strlen(component);
+        char *candidate;
+        if (directory_length == 0) {
+            candidate = (char *)file;
+        } else {
+            size_t length;
+            if (directory_length > SIZE_MAX - file_length - 2) { errno = ENAMETOOLONG; return -1; }
+            length = directory_length + 1 + file_length;
+            candidate = (char *)malloc(length + 1);
+            if (candidate == 0) return -1;
+            memcpy(candidate, component, directory_length);
+            candidate[directory_length] = '/';
+            memcpy(candidate + directory_length + 1, file, file_length + 1);
+        }
+        (void)execve(candidate, argv, environ);
+        if (errno == EACCES) access_denied = 1;
+        else if (errno != ENOENT && errno != ENOTDIR && errno != ENOEXEC) {
+            if (candidate != file) free(candidate);
+            return -1;
+        }
+        if (candidate != file) free(candidate);
+        if (separator == 0) break;
+        component = separator + 1;
+    }
+    errno = access_denied ? EACCES : ENOENT;
+    return -1;
 }
 
 int chdir(const char *path) {

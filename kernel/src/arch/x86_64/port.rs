@@ -15,6 +15,13 @@ pub unsafe fn in16(port: u16) -> u16 {
 }
 
 #[inline]
+pub unsafe fn in32(port: u16) -> u32 {
+    let value: u32;
+    asm!("in eax, dx", in("dx") port, out("eax") value, options(nomem, nostack, preserves_flags));
+    value
+}
+
+#[inline]
 pub unsafe fn out8(port: u16, value: u8) {
     asm!("out dx, al", in("dx") port, in("al") value, options(nomem, nostack, preserves_flags));
 }
@@ -22,6 +29,11 @@ pub unsafe fn out8(port: u16, value: u8) {
 #[inline]
 pub unsafe fn out16(port: u16, value: u16) {
     asm!("out dx, ax", in("dx") port, in("ax") value, options(nomem, nostack, preserves_flags));
+}
+
+#[inline]
+pub unsafe fn out32(port: u16, value: u32) {
+    asm!("out dx, eax", in("dx") port, in("eax") value, options(nomem, nostack, preserves_flags));
 }
 
 pub unsafe fn wait() {

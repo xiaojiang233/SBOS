@@ -1,0 +1,147 @@
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -648,17 +648,7 @@
+ #EXTRA_DIST += script.in
+ #MOSTLYCLEANFILES += script script-t
+ @GL_COND_OBJ_POSIX_MEMALIGN_TRUE@am__append_125 = lib/posix_memalign.c
+-@GL_COND_OBJ_SPAWN_TRUE@am__append_126 = lib/spawn.c
+-@GL_COND_OBJ_SPAWNI_TRUE@am__append_127 = lib/spawni.c
+-@GL_COND_OBJ_SPAWN_FACTION_ADDCLOSE_TRUE@am__append_128 = lib/spawn_faction_addclose.c
+-@GL_COND_OBJ_SPAWN_FACTION_ADDDUP2_TRUE@am__append_129 = lib/spawn_faction_adddup2.c
+-@GL_COND_OBJ_SPAWN_FACTION_DESTROY_TRUE@am__append_130 = lib/spawn_faction_destroy.c
+-@GL_COND_OBJ_SPAWN_FACTION_INIT_TRUE@am__append_131 = lib/spawn_faction_init.c
+-@GL_COND_OBJ_SPAWNATTR_DESTROY_TRUE@am__append_132 = lib/spawnattr_destroy.c
+-@GL_COND_OBJ_SPAWNATTR_INIT_TRUE@am__append_133 = lib/spawnattr_init.c
+-@GL_COND_OBJ_SPAWNATTR_SETFLAGS_TRUE@am__append_134 = lib/spawnattr_setflags.c
+-@GL_COND_OBJ_SPAWNATTR_SETDEFAULT_TRUE@am__append_135 = lib/spawnattr_setdefault.c
+-@GL_COND_OBJ_SPAWNP_TRUE@am__append_136 = lib/spawnp.c
++# SBOS excludes the unsupported POSIX spawn source modules.
+ @GL_COND_OBJ_PSELECT_TRUE@am__append_137 = lib/pselect.c
+ @GL_COND_OBJ_PTHREAD_COND_TRUE@am__append_138 = lib/pthread-cond.c
+ @GL_COND_OBJ_PTHREAD_MUTEX_TRUE@am__append_139 = lib/pthread-mutex.c
+@@ -1713,20 +1703,7 @@
+ @GL_COND_OBJ_PIPE_TRUE@am__objects_124 =  \
+ @GL_COND_OBJ_PIPE_TRUE@	lib/libcoreutils_a-pipe.$(OBJEXT)
+ @GL_COND_OBJ_POSIX_MEMALIGN_TRUE@am__objects_125 = lib/libcoreutils_a-posix_memalign.$(OBJEXT)
+-@GL_COND_OBJ_SPAWN_TRUE@am__objects_126 =  \
+-@GL_COND_OBJ_SPAWN_TRUE@	lib/libcoreutils_a-spawn.$(OBJEXT)
+-@GL_COND_OBJ_SPAWNI_TRUE@am__objects_127 =  \
+-@GL_COND_OBJ_SPAWNI_TRUE@	lib/libcoreutils_a-spawni.$(OBJEXT)
+-@GL_COND_OBJ_SPAWN_FACTION_ADDCLOSE_TRUE@am__objects_128 = lib/libcoreutils_a-spawn_faction_addclose.$(OBJEXT)
+-@GL_COND_OBJ_SPAWN_FACTION_ADDDUP2_TRUE@am__objects_129 = lib/libcoreutils_a-spawn_faction_adddup2.$(OBJEXT)
+-@GL_COND_OBJ_SPAWN_FACTION_DESTROY_TRUE@am__objects_130 = lib/libcoreutils_a-spawn_faction_destroy.$(OBJEXT)
+-@GL_COND_OBJ_SPAWN_FACTION_INIT_TRUE@am__objects_131 = lib/libcoreutils_a-spawn_faction_init.$(OBJEXT)
+-@GL_COND_OBJ_SPAWNATTR_DESTROY_TRUE@am__objects_132 = lib/libcoreutils_a-spawnattr_destroy.$(OBJEXT)
+-@GL_COND_OBJ_SPAWNATTR_INIT_TRUE@am__objects_133 = lib/libcoreutils_a-spawnattr_init.$(OBJEXT)
+-@GL_COND_OBJ_SPAWNATTR_SETFLAGS_TRUE@am__objects_134 = lib/libcoreutils_a-spawnattr_setflags.$(OBJEXT)
+-@GL_COND_OBJ_SPAWNATTR_SETDEFAULT_TRUE@am__objects_135 = lib/libcoreutils_a-spawnattr_setdefault.$(OBJEXT)
+-@GL_COND_OBJ_SPAWNP_TRUE@am__objects_136 =  \
+-@GL_COND_OBJ_SPAWNP_TRUE@	lib/libcoreutils_a-spawnp.$(OBJEXT)
++# SBOS excludes the unsupported POSIX spawn object modules.
+ @GL_COND_OBJ_PSELECT_TRUE@am__objects_137 = lib/libcoreutils_a-pselect.$(OBJEXT)
+ @GL_COND_OBJ_PTHREAD_COND_TRUE@am__objects_138 = lib/libcoreutils_a-pthread-cond.$(OBJEXT)
+ @GL_COND_OBJ_PTHREAD_MUTEX_TRUE@am__objects_139 = lib/libcoreutils_a-pthread-mutex.$(OBJEXT)
+--- a/lib/gnulib.mk
++++ b/lib/gnulib.mk
+@@ -4369,99 +4369,8 @@
+ 
+ ## begin gnulib module posix_spawn
+ 
+-if GL_COND_OBJ_SPAWN
+-lib_libcoreutils_a_SOURCES += lib/spawn.c
+-endif
+-
+-## end   gnulib module posix_spawn
+-
+-## begin gnulib module posix_spawn-internal
+-
+-if GL_COND_OBJ_SPAWNI
+-lib_libcoreutils_a_SOURCES += lib/spawni.c
+-endif
+-
+-EXTRA_DIST += lib/spawn_int.h
+-
+-## end   gnulib module posix_spawn-internal
+-
+-## begin gnulib module posix_spawn_file_actions_addclose
+-
+-if GL_COND_OBJ_SPAWN_FACTION_ADDCLOSE
+-lib_libcoreutils_a_SOURCES += lib/spawn_faction_addclose.c
+-endif
+-
+-EXTRA_DIST += lib/spawn_int.h
+-
+-## end   gnulib module posix_spawn_file_actions_addclose
+-
+-## begin gnulib module posix_spawn_file_actions_adddup2
+-
+-if GL_COND_OBJ_SPAWN_FACTION_ADDDUP2
+-lib_libcoreutils_a_SOURCES += lib/spawn_faction_adddup2.c
+-endif
+-
+-EXTRA_DIST += lib/spawn_int.h
+-
+-## end   gnulib module posix_spawn_file_actions_adddup2
+-
+-## begin gnulib module posix_spawn_file_actions_destroy
+-
+-if GL_COND_OBJ_SPAWN_FACTION_DESTROY
+-lib_libcoreutils_a_SOURCES += lib/spawn_faction_destroy.c
+-endif
+-
+-## end   gnulib module posix_spawn_file_actions_destroy
+-
+-## begin gnulib module posix_spawn_file_actions_init
+-
+-if GL_COND_OBJ_SPAWN_FACTION_INIT
+-lib_libcoreutils_a_SOURCES += lib/spawn_faction_init.c
+-endif
+-
+-EXTRA_DIST += lib/spawn_int.h
+-
+-## end   gnulib module posix_spawn_file_actions_init
+-
+-## begin gnulib module posix_spawnattr_destroy
+-
+-if GL_COND_OBJ_SPAWNATTR_DESTROY
+-lib_libcoreutils_a_SOURCES += lib/spawnattr_destroy.c
+-endif
+-
+-## end   gnulib module posix_spawnattr_destroy
+-
+-## begin gnulib module posix_spawnattr_init
+-
+-if GL_COND_OBJ_SPAWNATTR_INIT
+-lib_libcoreutils_a_SOURCES += lib/spawnattr_init.c
+-endif
+-
+-## end   gnulib module posix_spawnattr_init
+-
+-## begin gnulib module posix_spawnattr_setflags
+-
+-if GL_COND_OBJ_SPAWNATTR_SETFLAGS
+-lib_libcoreutils_a_SOURCES += lib/spawnattr_setflags.c
+-endif
+-
+-## end   gnulib module posix_spawnattr_setflags
+-
+-## begin gnulib module posix_spawnattr_setsigdefault
+-
+-if GL_COND_OBJ_SPAWNATTR_SETDEFAULT
+-lib_libcoreutils_a_SOURCES += lib/spawnattr_setdefault.c
+-endif
+-
+-## end   gnulib module posix_spawnattr_setsigdefault
+-
+-## begin gnulib module posix_spawnp
+-
+-if GL_COND_OBJ_SPAWNP
+-lib_libcoreutils_a_SOURCES += lib/spawnp.c
+-endif
+-
+-## end   gnulib module posix_spawnp
++# SBOS does not yet expose the POSIX spawn API. The selected command profile
++# omits install, sort, split, and timeout, the commands that use posix_spawn.
+ 
+ ## begin gnulib module posixtm
+ 

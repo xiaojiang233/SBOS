@@ -19,7 +19,12 @@ struct tm {
 #define CLOCK_REALTIME 0
 #define CLOCK_MONOTONIC 1
 int clock_gettime(int clock_id, struct timespec *time);
+int nanosleep(const struct timespec *request, struct timespec *remaining);
 time_t time(time_t *result);
+extern char *tzname[2];
+extern long timezone;
+extern int daylight;
+void tzset(void);
 struct tm *gmtime(const time_t *time_value);
 struct tm *localtime(const time_t *time_value);
 struct tm *gmtime_r(const time_t *time_value, struct tm *result);

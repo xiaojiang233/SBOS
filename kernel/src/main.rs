@@ -20,37 +20,73 @@ mod interrupt;
 mod io;
 mod ipc;
 mod memory;
+#[cfg(feature = "network-stack")]
+mod network;
 mod object;
 mod posix;
 mod security;
+#[cfg(feature = "fs-sbfs")]
 pub mod sbfs;
 mod service;
 mod sync;
 mod syscall;
 mod task;
+mod time;
 pub mod user;
 mod volume;
+
+#[cfg(not(any(feature = "fs-sbfs", feature = "fs-tmpfs")))]
+compile_error!("enable at least one root filesystem backend: fs-sbfs or fs-tmpfs");
+#[cfg(all(feature = "network-stack", not(feature = "driver-e1000")))]
+compile_error!("network-stack currently requires the driver-e1000 device adapter");
 
 use bootinfo::{BootInfo, BOOT_MAGIC};
 
 const POSIX_PROBE_IMAGE: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/posix-probe.elf"));
-const LS_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ls.elf"));
-const CAT_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/cat.elf"));
+const COREUTILS_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/coreutils.elf"));
 const CLEAR_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/clear.elf"));
 const ID_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/id.elf"));
 const MV_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/mv.elf"));
+const FAULT_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fault.elf"));
+const CHANNEL_PROBE_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/channel-probe.elf"));
+const NETWORK_PROBE_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/network-probe.elf"));
 
 /// User programs installed under /Applications next to the shell. Images that
 /// are not ELF files (because the port was not built) are skipped at install
 /// time, so the kernel still boots without them.
 const APPLICATION_IMAGES: &[(&str, &[u8])] = &[
     ("posix-probe", POSIX_PROBE_IMAGE),
-    ("ls", LS_IMAGE),
-    ("cat", CAT_IMAGE),
+    ("basename", COREUTILS_IMAGE),
+    ("cat", COREUTILS_IMAGE),
+    ("cut", COREUTILS_IMAGE),
+    ("date", COREUTILS_IMAGE),
+    ("dirname", COREUTILS_IMAGE),
+    ("env", COREUTILS_IMAGE),
+    ("false", COREUTILS_IMAGE),
+    ("head", COREUTILS_IMAGE),
+    ("ls", COREUTILS_IMAGE),
+    ("mkdir", COREUTILS_IMAGE),
+    ("printenv", COREUTILS_IMAGE),
+    ("printf", COREUTILS_IMAGE),
+    ("pwd", COREUTILS_IMAGE),
+    ("rm", COREUTILS_IMAGE),
+    ("rmdir", COREUTILS_IMAGE),
+    ("seq", COREUTILS_IMAGE),
+    ("sleep", COREUTILS_IMAGE),
+    ("tail", COREUTILS_IMAGE),
+    ("tee", COREUTILS_IMAGE),
+    ("test", COREUTILS_IMAGE),
+    ("tr", COREUTILS_IMAGE),
+    ("true", COREUTILS_IMAGE),
+    ("wc", COREUTILS_IMAGE),
+    ("yes", COREUTILS_IMAGE),
     ("clear", CLEAR_IMAGE),
     ("id", ID_IMAGE),
     ("mv", MV_IMAGE),
+    ("fault", FAULT_IMAGE),
+    ("channel-probe", CHANNEL_PROBE_IMAGE),
+    ("network-probe", NETWORK_PROBE_IMAGE),
 ];
 
 #[global_allocator]
@@ -130,7 +166,10 @@ pub extern "C" fn kernel_main(info_pointer: *const BootInfo) -> ! {
     kprintln!("VMM active root={:#x}", memory::vmm::current_root());
 
     memory::heap::init();
+    time::init();
+    #[cfg(feature = "driver-framebuffer")]
     let framebuffer_base = memory::vmm::framebuffer_address(info.framebuffer_base);
+    #[cfg(feature = "driver-framebuffer")]
     drivers::framebuffer::init(drivers::framebuffer::FramebufferInfo {
         base: framebuffer_base,
         size: info.framebuffer_size,
@@ -141,8 +180,24 @@ pub extern "C" fn kernel_main(info_pointer: *const BootInfo) -> ! {
     });
     drivers::console::write(b"\r\nSBOS: UEFI boot completed\r\n");
 
-    device::init(info.framebuffer_base != 0);
+    device::init(cfg!(feature = "driver-framebuffer") && info.framebuffer_base != 0);
+    #[cfg(feature = "driver-ata")]
     drivers::ata::init();
+    #[cfg(feature = "driver-e1000")]
+    match drivers::e1000::init() {
+        Ok(mac) => {
+            kprintln!("E1000 online: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+            device::register_network_device("Intel", "82540EM Gigabit Ethernet", "e1000");
+            #[cfg(feature = "network-stack")]
+            if let Err(error) = network::init(mac) {
+                kprintln!("network stack init failed: {}", error);
+            } else {
+                kprintln!("IPv4 configured: 10.0.2.15/24 via 10.0.2.2 (smoltcp)");
+            }
+        }
+        Err(error) => kprintln!("network device unavailable: {}", error),
+    }
 
     let shell = unsafe {
         core::slice::from_raw_parts(info.shell_image as *const u8, info.shell_image_size)

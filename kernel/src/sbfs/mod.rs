@@ -242,6 +242,10 @@ impl Sbfs {
         Ok(fs)
     }
 
+    pub fn sync(&self) -> Result<(), &'static str> {
+        self.device.flush().map_err(|_| "failed to flush SBFS volume")
+    }
+
     fn format(device: &Arc<dyn BlockDevice>) -> Result<(), &'static str> {
         let total_blocks = device.block_count();
         let bitmap_blocks = total_blocks

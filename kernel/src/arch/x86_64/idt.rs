@@ -71,6 +71,35 @@ struct Idtr {
 
 static mut IDT: [IdtEntry; 256] = [IdtEntry::MISSING; 256];
 
+#[repr(align(16))]
+struct IdleStack([u8; 16 * 1024]);
+static mut IDLE_STACK: IdleStack = IdleStack([0; 16 * 1024]);
+
+fn idle_loop() -> ! {
+    loop {
+        unsafe { asm!("sti", "hlt", options(nomem, nostack)); }
+    }
+}
+
+/// Build a ring-0 interrupt frame on a dedicated stack for the no-runnable
+/// thread case. Timer interrupts can wake a Ready thread from this idle frame.
+pub fn idle_frame() -> *mut TrapFrame {
+    unsafe {
+        let top = (core::ptr::addr_of_mut!(IDLE_STACK) as *mut u8)
+            .add(core::mem::size_of::<IdleStack>());
+        let frame = top.sub(core::mem::size_of::<TrapFrame>()).cast::<TrapFrame>();
+        frame.write(TrapFrame {
+            rip: idle_loop as usize as u64,
+            cs: crate::arch::x86_64::gdt::KERNEL_CODE as u64,
+            rflags: 0x202,
+            rsp: top as u64,
+            ss: crate::arch::x86_64::gdt::KERNEL_DATA as u64,
+            ..TrapFrame::default()
+        });
+        frame
+    }
+}
+
 extern "C" {
     fn isr0();
     fn isr1();

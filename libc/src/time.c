@@ -6,25 +6,53 @@
 #include <time.h>
 
 int clock_gettime(int clock_id, struct timespec *time) {
-    int64_t ticks;
+    int64_t result;
     if (time == 0) { errno = EFAULT; return -1; }
-    if (clock_id != CLOCK_MONOTONIC) { errno = ENOSYS; return -1; }
-    ticks = __sbos_checked_result(__sbos_syscall6(
-        SBOS_SCHEDULER_TICKS, 0, 0, 0, 0, 0, 0));
-    if (ticks < 0) return -1;
-    time->tv_sec = ticks / 100;
-    time->tv_nsec = (long)(ticks % 100) * 10000000L;
+    if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC) {
+        errno = EINVAL;
+        return -1;
+    }
+    result = __sbos_posix_checked_result(__sbos_syscall6(
+        SBOS_CLOCK_GETTIME, (uint64_t)(uint32_t)clock_id,
+        (uint64_t)(uintptr_t)time, 0, 0, 0, 0));
+    if (result < 0) return -1;
+    return 0;
+}
+
+int nanosleep(const struct timespec *request, struct timespec *remaining) {
+    int64_t result;
+    if (request == 0) { errno = EFAULT; return -1; }
+    if (request->tv_sec < 0 || request->tv_nsec < 0 || request->tv_nsec >= 1000000000L) {
+        errno = EINVAL;
+        return -1;
+    }
+    result = __sbos_posix_checked_result(__sbos_syscall6(
+        SBOS_THREAD_SLEEP, (uint64_t)request->tv_sec,
+        (uint64_t)request->tv_nsec, 0, 0, 0, 0));
+    if (result < 0) return -1;
+    if (remaining != 0) { remaining->tv_sec = 0; remaining->tv_nsec = 0; }
     return 0;
 }
 
 time_t time(time_t *result) {
-    (void)result;
-    errno = ENOSYS;
-    return (time_t)-1;
+    struct timespec current;
+    if (clock_gettime(CLOCK_REALTIME, &current) < 0) return (time_t)-1;
+    if (result != 0) *result = current.tv_sec;
+    return current.tv_sec;
 }
 
 static struct tm broken_down_time;
 static char utc_name[] = "UTC";
+char *tzname[2] = {utc_name, utc_name};
+long timezone = 0;
+int daylight = 0;
+
+void tzset(void) {
+    tzname[0] = utc_name;
+    tzname[1] = utc_name;
+    timezone = 0;
+    daylight = 0;
+}
 
 static int leap_year(int year) {
     return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;

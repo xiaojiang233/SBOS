@@ -20,6 +20,7 @@ struct lconv {
 #define LC_MONETARY 3
 #define LC_NUMERIC 4
 #define LC_TIME 5
+#define LC_MESSAGES 6
 char *setlocale(int category, const char *locale);
 struct lconv *localeconv(void);
 #endif

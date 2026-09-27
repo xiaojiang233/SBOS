@@ -37,7 +37,7 @@ if (-not (Test-Path -LiteralPath $disk)) {
     $stream = [System.IO.File]::Open($disk, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
     try { $stream.SetLength(64MB) } finally { $stream.Dispose() }
 }
-$qemuArgs = @('-machine','pc','-cpu','qemu64','-m','512M')
+$qemuArgs = @('-machine','pc','-cpu','qemu64','-m','512M', '-netdev','user,id=net0', '-device','e1000,netdev=net0,mac=52:54:00:12:34:56')
 if (Test-Path -LiteralPath $varsPath) {
     $qemuArgs += @('-drive',"if=pflash,format=raw,unit=0,file=$OvmfCode,readonly=on")
     $qemuArgs += @('-drive',"if=pflash,format=raw,unit=1,file=$varsPath")

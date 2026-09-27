@@ -1,0 +1,33 @@
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -649,7 +649,7 @@
+ #MOSTLYCLEANFILES += script script-t
+ @GL_COND_OBJ_POSIX_MEMALIGN_TRUE@am__append_125 = lib/posix_memalign.c
+ # SBOS excludes the unsupported POSIX spawn source modules.
+-@GL_COND_OBJ_PSELECT_TRUE@am__append_137 = lib/pselect.c
++# SBOS's first Coreutils command profile does not use pselect.
+ @GL_COND_OBJ_PTHREAD_COND_TRUE@am__append_138 = lib/pthread-cond.c
+ @GL_COND_OBJ_PTHREAD_MUTEX_TRUE@am__append_139 = lib/pthread-mutex.c
+ @GL_COND_OBJ_PTHREAD_ONCE_TRUE@am__append_140 = lib/pthread-once.c
+@@ -1704,7 +1704,7 @@
+ @GL_COND_OBJ_PIPE_TRUE@	lib/libcoreutils_a-pipe.$(OBJEXT)
+ @GL_COND_OBJ_POSIX_MEMALIGN_TRUE@am__objects_125 = lib/libcoreutils_a-posix_memalign.$(OBJEXT)
+ # SBOS excludes the unsupported POSIX spawn object modules.
+-@GL_COND_OBJ_PSELECT_TRUE@am__objects_137 = lib/libcoreutils_a-pselect.$(OBJEXT)
++# SBOS's first Coreutils command profile does not use pselect.
+ @GL_COND_OBJ_PTHREAD_COND_TRUE@am__objects_138 = lib/libcoreutils_a-pthread-cond.$(OBJEXT)
+ @GL_COND_OBJ_PTHREAD_MUTEX_TRUE@am__objects_139 = lib/libcoreutils_a-pthread-mutex.$(OBJEXT)
+ @GL_COND_OBJ_PTHREAD_ONCE_TRUE@am__objects_140 = lib/libcoreutils_a-pthread-once.$(OBJEXT)
+--- a/lib/gnulib.mk
++++ b/lib/gnulib.mk
+@@ -4437,9 +4437,7 @@
+ 
+ ## begin gnulib module pselect
+ 
+-if GL_COND_OBJ_PSELECT
+-lib_libcoreutils_a_SOURCES += lib/pselect.c
+-endif
++# SBOS's first Coreutils command profile does not use pselect.
+ 
+ ## end   gnulib module pselect
+ 

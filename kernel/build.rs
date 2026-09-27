@@ -5,11 +5,13 @@ use std::path::PathBuf;
 /// User programs that the kernel embeds and installs into /Applications.
 const APPLICATIONS: &[(&str, &str)] = &[
     ("posix-probe.elf", "build/userland/posix-probe.elf"),
-    ("ls.elf", "build/userland/ls.elf"),
-    ("cat.elf", "build/userland/cat.elf"),
+    ("coreutils.elf", "build/userland/coreutils.elf"),
     ("clear.elf", "build/userland/clear.elf"),
     ("id.elf", "build/userland/id.elf"),
     ("mv.elf", "build/userland/mv.elf"),
+    ("fault.elf", "build/userland/fault.elf"),
+    ("channel-probe.elf", "build/userland/channel-probe.elf"),
+    ("network-probe.elf", "build/userland/network-probe.elf"),
 ];
 
 fn main() {

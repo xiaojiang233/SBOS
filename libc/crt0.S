@@ -7,6 +7,8 @@ _start:
     movq (%rbx), %r12
     leaq 8(%rbx), %r13
     leaq 16(%rbx,%r12,8), %r14
+    movq (%r13), %rdi
+    call __sbos_init_program_name
     movq %r14, %rdi
     call __sbos_init_environment
     movq %r12, %rdi
@@ -22,3 +24,4 @@ _start:
     jmp 1b
 .size _start, .-_start
 .extern __sbos_init_environment
+.extern __sbos_init_program_name

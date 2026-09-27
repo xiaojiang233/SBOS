@@ -63,10 +63,13 @@ int fchmod(int fd, mode_t mode) {
 }
 
 int mkdir(const char *path, mode_t mode) {
-    (void)path;
+    size_t length;
     (void)mode;
-    errno = ENOSYS;
-    return -1;
+    if (path == 0) { errno = EFAULT; return -1; }
+    length = strnlen(path, 513);
+    if (length > 512) { errno = ENAMETOOLONG; return -1; }
+    return (int)__sbos_checked_result(__sbos_syscall6(
+        SBOS_DIRECTORY_CREATE, (uint64_t)(uintptr_t)path, length, 0, 0, 0, 0));
 }
 
 /*

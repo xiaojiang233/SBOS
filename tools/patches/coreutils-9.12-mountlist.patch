@@ -1,0 +1,59 @@
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -566,8 +566,7 @@
+ @GL_COND_OBJ_FTRUNCATE_TRUE@am__append_51 = lib/ftruncate.c
+ @GL_COND_OBJ_FTS_TRUE@am__append_52 = lib/fts.c
+ @GL_COND_OBJ_FUTIMENS_TRUE@am__append_53 = lib/futimens.c
+-@GL_COND_OBJ_GETADDRINFO_TRUE@am__append_54 = lib/getaddrinfo.c
+-@GL_COND_OBJ_GAI_STRERROR_TRUE@am__append_55 = lib/gai_strerror.c
++# SBOS omits name-service substitutes until Ring 3 sockets are implemented.
+ @GL_COND_OBJ_GETCWD_TRUE@am__append_56 = lib/getcwd.c
+ @GL_COND_OBJ_GETCWD_LGPL_TRUE@am__append_57 = lib/getcwd-lgpl.c
+ @GL_COND_OBJ_GETDELIM_TRUE@am__append_58 = lib/getdelim.c
+@@ -1447,7 +1446,7 @@
+ 	lib/mgetgroups.c lib/minmax.h lib/mkancesdirs.c lib/mkdir.c \
+ 	lib/dirchownmod.c lib/mkdir-p.c lib/mkdirat.c lib/mkfifo.c \
+ 	lib/mkfifoat.c lib/mknodat.c lib/mknod.c lib/mkostemp.c \
+-	lib/mkstemp.c lib/modechange.c lib/mountlist.c lib/mpsort.c \
++	lib/mkstemp.c lib/modechange.c lib/mpsort.c \
+ 	lib/msvc-inval.c lib/msvc-nothrow.c lib/nanosleep.c \
+ 	lib/next-prime.h lib/next-prime.c lib/nl_langinfo.c \
+ 	lib/nl_langinfo-lock.c lib/nproc.c lib/nstrftime.c \
+@@ -1621,8 +1620,7 @@
+ @GL_COND_OBJ_FTS_TRUE@am__objects_52 =  \
+ @GL_COND_OBJ_FTS_TRUE@	lib/libcoreutils_a-fts.$(OBJEXT)
+ @GL_COND_OBJ_FUTIMENS_TRUE@am__objects_53 = lib/libcoreutils_a-futimens.$(OBJEXT)
+-@GL_COND_OBJ_GETADDRINFO_TRUE@am__objects_54 = lib/libcoreutils_a-getaddrinfo.$(OBJEXT)
+-@GL_COND_OBJ_GAI_STRERROR_TRUE@am__objects_55 = lib/libcoreutils_a-gai_strerror.$(OBJEXT)
++# SBOS omits name-service substitutes until Ring 3 sockets are implemented.
+ @GL_COND_OBJ_GETCWD_TRUE@am__objects_56 =  \
+ @GL_COND_OBJ_GETCWD_TRUE@	lib/libcoreutils_a-getcwd.$(OBJEXT)
+ @GL_COND_OBJ_GETCWD_LGPL_TRUE@am__objects_57 = lib/libcoreutils_a-getcwd-lgpl.$(OBJEXT)
+@@ -2068,7 +2066,6 @@
+ 	$(am__objects_109) $(am__objects_110) $(am__objects_111) \
+ 	$(am__objects_112) $(am__objects_113) $(am__objects_114) \
+ 	lib/libcoreutils_a-modechange.$(OBJEXT) \
+-	lib/libcoreutils_a-mountlist.$(OBJEXT) \
+ 	lib/libcoreutils_a-mpsort.$(OBJEXT) $(am__objects_115) \
+ 	$(am__objects_116) $(am__objects_117) \
+ 	lib/libcoreutils_a-next-prime.$(OBJEXT) $(am__objects_118) \
+@@ -7825,7 +7822,7 @@
+ 	lib/dirchownmod.c lib/mkdir-p.c $(am__append_108) \
+ 	$(am__append_109) $(am__append_110) $(am__append_111) \
+ 	$(am__append_112) $(am__append_113) $(am__append_114) \
+-	lib/modechange.c lib/mountlist.c lib/mpsort.c \
++	lib/modechange.c lib/mpsort.c \
+ 	$(am__append_115) $(am__append_116) $(am__append_117) \
+ 	lib/next-prime.h lib/next-prime.c $(am__append_118) \
+ 	$(am__append_119) lib/nproc.c lib/nstrftime.c \
+--- a/lib/gnulib.mk
++++ b/lib/gnulib.mk
+@@ -4031,7 +4031,7 @@
+ 
+ ## begin gnulib module mountlist
+ 
+-lib_libcoreutils_a_SOURCES += lib/mountlist.c
++# SBOS omits mount-list-dependent commands until VolumeManager has a query ABI.
+ 
+ EXTRA_DIST += lib/mountlist.h
+ 

@@ -83,8 +83,15 @@ export SBOS_BASH_PORT=1
 CC="$ROOT/tools/bash-cc.sh"
 export CC
 export CPP="$CC -E"
-export AR=${AR:-llvm-ar}
-export RANLIB=${RANLIB:-llvm-ranlib}
+if command -v cygpath >/dev/null 2>&1; then
+    export AR=${AR:-llvm-ar}
+    export RANLIB=${RANLIB:-llvm-ranlib}
+else
+    # WSL uses the native binutils names; the LLVM-suffixed tools may not be
+    # installed even though clang/LLD provide the target compiler and linker.
+    export AR=${AR:-ar}
+    export RANLIB=${RANLIB:-ranlib}
+fi
 # Host tools (mksyntax, mkbuiltins, bashversion) must run on the build machine,
 # so they are compiled with the host compiler instead of the target driver.
 # They include the SBOS config.h, so they also need the host compatibility
@@ -94,7 +101,18 @@ HOST_COMPAT=$PORT/host-compat.h
 if command -v cygpath >/dev/null 2>&1; then
     HOST_COMPAT=$(cygpath -m "$HOST_COMPAT")
 fi
-export CC_FOR_BUILD=${CC_FOR_BUILD:-"clang -std=gnu89 -include $HOST_COMPAT"}
+if [ -z "${CC_FOR_BUILD:-}" ]; then
+    if command -v cygpath >/dev/null 2>&1; then
+        # Windows-hosted generators need the MinGW compatibility declarations.
+        CC_FOR_BUILD="clang -std=gnu89 -include $HOST_COMPAT"
+    else
+        # Under WSL/Linux, generators must be native Linux executables. The
+        # compatibility header only contributes Bash's target identity macros
+        # here; its MinGW declarations are guarded by _WIN32.
+        CC_FOR_BUILD="gcc -std=gnu89 -include $HOST_COMPAT"
+    fi
+fi
+export CC_FOR_BUILD
 
 case "$1" in
     clean)

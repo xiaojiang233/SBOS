@@ -49,15 +49,17 @@ impl KernelObject for VolumeObject {
 static VOLUMES: SpinLock<Vec<Arc<VolumeObject>>> = SpinLock::new(Vec::new());
 pub fn init() -> Arc<VolumeObject> {
     let block_device = crate::device::block_devices().into_iter().next();
-    let volume = if let Some(device) = block_device {
-        Arc::new(VolumeObject::new(
-            "Primary Disk",
-            "sbfs",
-            "/",
-            Some(device),
-        ))
+    let volume = if cfg!(feature = "fs-sbfs") {
+        if let Some(device) = block_device {
+            Arc::new(VolumeObject::new("Primary Disk", "sbfs", "/", Some(device)))
+        } else {
+            Arc::new(VolumeObject::new("System RAM", "tmpfs", "/", None))
+        }
     } else {
-        Arc::new(VolumeObject::new("System RAM", "tmpfs", "/", None))
+        #[cfg(feature = "fs-tmpfs")]
+        { Arc::new(VolumeObject::new("System RAM", "tmpfs", "/", None)) }
+        #[cfg(not(feature = "fs-tmpfs"))]
+        { Arc::new(VolumeObject::new("Unavailable", "sbfs", "/", None)) }
     };
     VOLUMES.lock().clear();
     VOLUMES.lock().push(volume.clone());

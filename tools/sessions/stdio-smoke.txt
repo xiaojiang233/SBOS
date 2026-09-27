@@ -1,0 +1,6 @@
+printf 'red:one\nblue:two\n' > /Users/Root/stdio-test.txt
+head -n1 /Users/Root/stdio-test.txt
+wc -l /Users/Root/stdio-test.txt
+cut -d: -f2 /Users/Root/stdio-test.txt
+rm /Users/Root/stdio-test.txt
+exit

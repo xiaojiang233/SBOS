@@ -68,12 +68,48 @@ size_t strnlen(const char *text, size_t limit) {
     return length;
 }
 
+size_t strspn(const char *text, const char *accept) {
+    size_t length = 0;
+    while (text[length] != '\0') {
+        const char *candidate = accept;
+        while (*candidate != '\0' && *candidate != text[length]) ++candidate;
+        if (*candidate == '\0') break;
+        ++length;
+    }
+    return length;
+}
+
+size_t strcspn(const char *text, const char *reject) {
+    size_t length = 0;
+    while (text[length] != '\0') {
+        const char *candidate = reject;
+        while (*candidate != '\0' && *candidate != text[length]) ++candidate;
+        if (*candidate != '\0') break;
+        ++length;
+    }
+    return length;
+}
+
 int strcmp(const char *left, const char *right) {
     while (*left && (unsigned char)*left == (unsigned char)*right) {
         ++left;
         ++right;
     }
     return (int)(unsigned char)*left - (int)(unsigned char)*right;
+}
+
+/* In the supported C/POSIX locale, collation order is bytewise. */
+int strcoll(const char *left, const char *right) { return strcmp(left, right); }
+
+/* The C locale's transform is the original byte string. */
+size_t strxfrm(char *destination, const char *source, size_t size) {
+    size_t length = strlen(source);
+    if (size != 0) {
+        size_t copied = length < size - 1 ? length : size - 1;
+        memcpy(destination, source, copied);
+        destination[copied] = '\0';
+    }
+    return length;
 }
 
 int strncmp(const char *left, const char *right, size_t limit) {
@@ -123,6 +159,26 @@ char *strrchr(const char *text, int character) {
         if ((unsigned char)*text == needle) found = text;
     } while (*text++ != '\0');
     return (char *)found;
+}
+
+char *strpbrk(const char *text, const char *accept) {
+    for (; *text != '\0'; ++text)
+        if (strchr(accept, (unsigned char)*text) != 0) return (char *)text;
+    return 0;
+}
+
+char *strtok(char *text, const char *delimiters) {
+    static char *next;
+    char *token;
+    if (text == 0) text = next;
+    if (text == 0) return 0;
+    while (*text != '\0' && strchr(delimiters, (unsigned char)*text) != 0) ++text;
+    if (*text == '\0') { next = 0; return 0; }
+    token = text;
+    while (*text != '\0' && strchr(delimiters, (unsigned char)*text) == 0) ++text;
+    if (*text != '\0') { *text++ = '\0'; next = text; }
+    else next = 0;
+    return token;
 }
 
 char *strstr(const char *text, const char *needle) {

@@ -1,10 +1,13 @@
 #include <errno.h>
 #include <sys/time.h>
+#include <time.h>
 
-/* The UEFI boot protocol does not yet pass a real-time clock value. */
 int gettimeofday(struct timeval *value, void *zone) {
-    (void)value;
+    struct timespec current;
     (void)zone;
-    errno = ENOSYS;
-    return -1;
+    if (value == 0) { errno = EFAULT; return -1; }
+    if (clock_gettime(CLOCK_REALTIME, &current) < 0) return -1;
+    value->tv_sec = current.tv_sec;
+    value->tv_usec = (suseconds_t)(current.tv_nsec / 1000);
+    return 0;
 }

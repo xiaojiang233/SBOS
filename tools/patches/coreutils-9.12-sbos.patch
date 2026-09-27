@@ -1,0 +1,174 @@
+diff --git a/lib/freadahead.c b/lib/freadahead.c
+--- a/lib/freadahead.c
++++ b/lib/freadahead.c
+@@ -96,2 +96,4 @@
+   return fp->wp - fp->rp;
++#elif defined __SBOS__               /* SBOS exposes an opaque stdio object. */
++  return __freadahead (fp);
+ #elif defined SLOW_BUT_NO_HACKS     /* users can define this */
+diff --git a/lib/freading.c b/lib/freading.c
+--- a/lib/freading.c
++++ b/lib/freading.c
+@@ -74,2 +74,4 @@
+   return (fp->state == 3 /* RD */ && (fp->bufl == 0 || fp->rp < fp->wp));
++# elif defined __SBOS__               /* SBOS exposes an opaque stdio object. */
++  return __freading (fp) != 0;
+ # else
+diff --git a/lib/fseterr.c b/lib/fseterr.c
+--- a/lib/fseterr.c
++++ b/lib/fseterr.c
+@@ -55,2 +55,4 @@
+     fp->state = 5 /* ERR */;
++#elif defined __SBOS__               /* SBOS exposes an opaque stdio object. */
++  __fseterr (fp);
+ #elif 0                             /* unknown  */
+diff --git a/lib/fsync.c b/lib/fsync.c
+--- a/lib/fsync.c
++++ b/lib/fsync.c
+@@ -82,3 +82,7 @@
+-#else /* !Windows */
+-
+-# error "This platform lacks fsync function, and Gnulib doesn't provide a replacement. This is a bug in Gnulib."
++#elif defined __SBOS__
++
++# undef fsync
++int rpl_fsync (int fd) { return fsync (fd); }
++
++#else /* !Windows */
++# error "This platform lacks fsync function, and Gnulib doesn't provide a replacement. This is a bug in Gnulib."
+diff --git a/lib/gnulib.mk b/lib/gnulib.mk
+--- a/lib/gnulib.mk
++++ b/lib/gnulib.mk
+@@ -2276,9 +2276,5 @@
+ ## begin gnulib module getaddrinfo
+ 
+-if GL_COND_OBJ_GETADDRINFO
+-lib_libcoreutils_a_SOURCES += lib/getaddrinfo.c
+-endif
+-if GL_COND_OBJ_GAI_STRERROR
+-lib_libcoreutils_a_SOURCES += lib/gai_strerror.c
+-endif
++# SBOS has no Ring 3 socket/name-service API yet. None of this port's selected
++# Coreutils commands use name resolution, so omit these unused substitutes.
+ 
+diff --git a/lib/getdtablesize.c b/lib/getdtablesize.c
+--- a/lib/getdtablesize.c
++++ b/lib/getdtablesize.c
+@@ -87,3 +87,7 @@
+-#else
+-
+-# include <limits.h>
++#elif defined __SBOS__
++
++# undef getdtablesize
++int rpl_getdtablesize (void) { return getdtablesize (); }
++
++#else
++# include <limits.h>
+diff --git a/lib/link.c b/lib/link.c
+--- a/lib/link.c
++++ b/lib/link.c
+@@ -181,3 +181,10 @@
+-# else /* !Windows */
+-
+-#  error "This platform lacks a link function, and Gnulib doesn't provide a replacement. This is a bug in Gnulib."
++# elif defined __SBOS__
++
++#  undef link
++int rpl_link (const char *file1, const char *file2)
++{
++  return link (file1, file2);
++}
++
++# else /* !Windows */
++#  error "This platform lacks a link function, and Gnulib doesn't provide a replacement. This is a bug in Gnulib."
+diff --git a/lib/nanosleep.c b/lib/nanosleep.c
+--- a/lib/nanosleep.c
++++ b/lib/nanosleep.c
+@@ -29,1 +29,3 @@
+-#include <sys/select.h>
++#if !defined __SBOS__
++# include <sys/select.h>
++#endif
+@@ -39,1 +39,10 @@
+-#if HAVE_BUG_BIG_NANOSLEEP
++#if defined __SBOS__
++
++# undef nanosleep
++int rpl_nanosleep (const struct timespec *requested_delay,
++                   struct timespec *remaining_delay)
++{
++  return nanosleep (requested_delay, remaining_delay);
++}
++
++#elif HAVE_BUG_BIG_NANOSLEEP
+--- a/lib/renameatu.c
++++ b/lib/renameatu.c
+@@ -23,6 +23,8 @@
+ 
+ #include <errno.h>
+ #include <stdio.h>
++/* The no-renameat fallback also checks trailing slashes. */
++#include <string.h>
+ #include <sys/stat.h>
+ #include <unistd.h>
+ 
+@@ -42,7 +44,6 @@
+ #if HAVE_RENAMEAT
+ 
+ # include <stdlib.h>
+-# include <string.h>
+ 
+ # include "dirname.h"
+ # include "openat.h"
+--- a/lib/strtod.c
++++ b/lib/strtod.c
+@@ -18,6 +18,22 @@
+ # include <config.h>
+ #endif
+ 
++#if defined __SBOS__
++/* SBOS libc does not yet provide strtod/strtof/strtold. Use Gnulib's parser. */
++# undef STRTOD_HAS_UNDERFLOW_BUG
++# define STRTOD_HAS_UNDERFLOW_BUG 1
++# undef STRTOD_HAS_MINUS_NAN_BUG
++# define STRTOD_HAS_MINUS_NAN_BUG 0
++# undef STRTOF_HAS_UNDERFLOW_BUG
++# define STRTOF_HAS_UNDERFLOW_BUG 1
++# undef STRTOF_HAS_MINUS_NAN_BUG
++# define STRTOF_HAS_MINUS_NAN_BUG 0
++# undef STRTOLD_HAS_UNDERFLOW_BUG
++# define STRTOLD_HAS_UNDERFLOW_BUG 1
++# undef STRTOLD_HAS_MINUS_NAN_BUG
++# define STRTOLD_HAS_MINUS_NAN_BUG 0
++#endif
++
+ /* Specification.  */
+ #include <stdlib.h>
+ 
+--- a/lib/unistd.in.h
++++ b/lib/unistd.in.h
+@@ -1438,6 +1438,10 @@
+ #    if !defined _gl_getpagesize && defined __amigaos4__
+ #     define _gl_getpagesize() 2048
+ #    endif
++/* SBOS uses fixed 4 KiB virtual-memory pages.  */
++#    if !defined _gl_getpagesize && defined __SBOS__
++#     define _gl_getpagesize() 4096
++#    endif
+ /* This is for older Unix systems.  */
+ #    if !defined _gl_getpagesize && @HAVE_SYS_PARAM_H@
+ #     include <sys/param.h>
+--- a/lib/getprogname.c
++++ b/lib/getprogname.c
+@@ -251,6 +251,10 @@
+       close (fd);
+     }
+   return "?";
++# elif defined __SBOS__
++#  undef getprogname
++  extern char const *__sbos_program_short_name (void);
++  return __sbos_program_short_name ();
+ # else
+ #  error "getprogname module not ported to this OS"
+ # endif

@@ -1,0 +1,12 @@
+ls /Applications
+printf 'red:one\nblue:two\n' > /Users/Root/coreutils-cut.txt
+cut -d: -f2 /Users/Root/coreutils-cut.txt
+seq 1 3
+mkdir /Users/Root/coreutils-dir
+printf payload > /Users/Root/coreutils-dir/file
+rm /Users/Root/coreutils-dir/file
+rmdir /Users/Root/coreutils-dir
+sleep 0
+rm /Users/Root/coreutils-cut.txt
+echo coreutils-smoke-passed
+exit

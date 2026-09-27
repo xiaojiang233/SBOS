@@ -20,6 +20,7 @@ int atexit(void (*function)(void));
 int atoi(const char *text);
 long strtol(const char *text, char **end, int base);
 unsigned long strtoul(const char *text, char **end, int base);
+int wctomb(char *buffer, wchar_t character);
 int abs(int value);
 long labs(long value);
 char *getenv(const char *name);
@@ -29,7 +30,6 @@ int putenv(char *assignment);
 int system(const char *command);
 int rand(void);
 void srand(unsigned int seed);
-char *strerror(int error);
 void qsort(void *base, size_t count, size_t size,
            int (*compare)(const void *, const void *));
 void *bsearch(const void *key, const void *base, size_t count, size_t size,

@@ -13,25 +13,39 @@ This is a bring-up project, not a production-ready OS. The first-stage implement
 ## 已实现
 
 - **UEFI Loader**：从 Simple File System 读取 `kernel.elf` 和 `shell.elf`，解析 ELF64 `PT_LOAD`，取得 UEFI Memory Map、GOP Framebuffer 和 ACPI RSDP，构造 BootInfo，调用 `ExitBootServices` 并跳转到内核。
-- **内核入口与架构**：`#![no_std]` Rust 内核、COM1 串口、GOP 5×7 文本渲染、panic handler、GDT、IDT、紧凑布局的 TSS、CPU 异常和 Page Fault handler。
+- **内核入口与架构**：`#![no_std]` Rust 内核、COM1 串口、GOP 5×7 文本渲染、panic handler、GDT、IDT、紧凑布局的 TSS 和 CPU exception/Page Fault handler。Ring 0 异常触发 kernel panic；Ring 3 异常记录 PID/TID 与 fault 信息、清理当前进程并切换回可运行线程。
 - **内存**：按 UEFI Conventional Memory 管理物理页；建立 NX 页表、内核只读代码/只读数据映射、用户页与 1 GiB 内核直接映射；内核堆支持释放。
-- **中断与调度**：PIC/PIT timer、COM1 IRQ 接收、PS/2 键盘轮询；单核 Round Robin Thread 调度；TTY 输入由前台进程持有。
-- **对象与安全**：KernelObject、进程级 typed Handle Table、generation-protected Handle、READ/WRITE/EXECUTE/MAP/WAIT/SIGNAL/DUPLICATE/TRANSFER/CONTROL 权限，以及 SecurityContext/Capabilities。
-- **进程与用户态**：Process、Thread、AddressSpace、独立用户页表、Ring 3 ELF64 Loader、用户栈、自定义 `int 0x80` Native syscall ABI。
+- **中断与调度**：PIC/PIT timer、COM1 IRQ 接收、PS/2 键盘轮询；单核 Round Robin Thread 调度，带真实 Blocked/Ready 转换、WaitQueue、显式唤醒和 PIT timeout；TTY 输入由前台进程持有。可选 CMOS RTC 为统一时间服务提供 epoch，内核使用 PIT ticks 推进 monotonic 与 realtime 时钟。
+- **对象与安全**：KernelObject、进程级 typed Handle Table、24-bit generation Handle、READ/WRITE/EXECUTE/MAP/WAIT/SIGNAL/DUPLICATE/TRANSFER/CONTROL 权限，以及 SecurityContext/Capabilities。全局 Scheduler/Process/Mount 状态可用 `lock_irqsave` 精确保留并恢复 IF。
+- **进程与用户态**：Process、Thread、AddressSpace、独立用户页表、Ring 3 ELF64 Loader、用户栈、自定义 `int 0x80` Native syscall ABI；Process 采用 Running/Exiting/Zombie/Reaped 状态，waitpid 后回收地址空间与线程栈，用户异常不会停掉 Bash。
 - **身份管理**：独立 User/Group Manager，将 Root（UID/GID 0）和 Guest（UID/GID 1000）账户写入 SBFS 的 `/System/Accounts.db`；当前开发启动默认使用 root，账户 API 已有创建/删除入口。
-- **文件和系统服务**：VFS/VNode/File/Directory、Device Manager、块设备接口、Volume Manager、SBFS 持久化文件系统（无磁盘时回退 tmpfs）、ConfigStore、Service Manager 和双端有界消息 Channel。
-- **用户程序**：GNU Bash 5.3（上游 patchlevel 20）以 Ring 3 交互 Shell 启动；独立 C 程序提供 `ls`、`cat`、`clear`、`id`、`mv` 和 POSIX 自检程序。
+- **文件和系统服务**：VFS/VNode/File/Directory、携带 MountId 的 `NodeRef`、Device Manager、块设备接口、Volume Manager、SBFS 持久化文件系统（无磁盘时回退 tmpfs）、ConfigStore、Service Manager 和双端有界 Channel。Channel 可以阻塞等待，并以 sender-retains-original 语义复制传递 Handle，保留原 rights。
+- **用户程序**：GNU Bash 5.3（上游 patchlevel 20）以 Ring 3 交互 Shell 启动；GNU Coreutils 9.12 的精选单体构建提供 `basename`、`cat`、`date`、`dirname`、`env`、`head`、`ls`、`printf`、`pwd`、`tail`、`tee`、`test`、`tr`、`wc` 等命令。独立 C 程序仍提供 `clear`、`id`、`mv`、`fault`、`channel-probe`、`network-probe` 和 POSIX 自检程序。
 - **兼容接口**：`user/runtime` Rust API、自定义 syscall ABI、`libc/` C runtime，以及 `compat/posix` 适配层。`fork`、`execve`、`waitpid`、pipe、TTY、文件描述符和 `rename` 已有最小可运行路径。
+- **网络 bring-up**：可选 PCI/e1000 驱动使用 PMM DMA 描述符环；可选 `network-stack` 使用 no_std smoltcp，已接入 Ethernet、ARP、IPv4、ICMP、UDP/TCP 协议组件和 DHCPv4 租约获取。QEMU 用户网络实测取得 `10.0.2.15/24`。Ring 3 已实现 IPv4 UDP `socket/bind/connect/sendto/recvfrom` 与 fd `read/write`；libc `getaddrinfo` 可用 DHCP DNS 服务器解析 IPv4 A 记录。QEMU `network-probe` 实测收到 DNS 代理回复并将 `example.com` 解析为 IPv4 地址。TCP sockets、IPv6 和 GNU 网络客户端仍未实现。
 
 有块设备时，根 Volume 使用 SBFS，初始目录为 `/Applications`、`/System`、`/Users`、`/Shared` 和 `/Volumes`，并写入 Bash、基础用户程序与欢迎文件。没有可用磁盘时，系统使用同一初始目录布局的 tmpfs。
+
+最近的 QEMU shell smoke 实际从 UEFI 启动并进入 Ring 3 Bash，验证了 `ls`/`cat`/`printf` Coreutils applet、SBFS 文件读写与替换、POSIX probe 的 fork/pipe/waitpid/execve，以及 Shell 在子进程完成后继续交互。`network-probe` 还验证了 UDP DNS 数据报、`fork` 后 fd 共享和 libc `getaddrinfo` 的 IPv4 查询。更早的回归还覆盖 `channel-probe` Event timeout/wakeup、stale Handle 拒绝与父子进程 File Handle 传递、Ring 3 fault 后 Bash 继续执行和跨启动 SBFS 持久化。
 
 SBFS v1 使用 128-bit NodeId、Volume UUID、固定容量节点表、Allocation Bitmap、最多 8 个 inline extents、UTF-8 目录项、主体 ACL 条目和 metadata redo journal。SBFS 只管理文件与目录；设备、进程、服务和配置仍由各自的管理器负责，不提供 `/dev`、`/proc`、`/sys` 或 `/etc`。
 
 开发启动默认以 `root` 身份进入 `/Users/Root`。身份数据库目前不含密码或登录认证；认证、会话切换及 `su`/`sudo` 用户程序属于后续阶段。`root` 是唯一管理员，普通进程凭据从父进程继承，后续可接入用户登录服务。
 
+## 可选内核模块
+
+驱动和根文件系统后端通过 Cargo features 选择。`qemu` 是默认参考配置；根文件系统至少要选 `fs-sbfs` 或 `fs-tmpfs`。构建脚本接受完整 feature 列表：
+
+```powershell
+./tools/build.ps1 -KernelFeatures fs-tmpfs
+./tools/build.ps1 -KernelFeatures fs-sbfs,fs-tmpfs,driver-ata,driver-ps2
+```
+
+第一条构建 tmpfs-only、串口交互变体；第二条保留磁盘和键盘但不构建 PCI/e1000/network stack。`driver-e1000` 会自动启用 `driver-pci` 与 `network-stack`。feature 依赖和已知边界见 [`docs/KERNEL_FEATURES.md`](docs/KERNEL_FEATURES.md) 和 [`docs/NETWORK.md`](docs/NETWORK.md)。
+
 ## 构建与运行
 
-需要 Rust/Cargo、`x86_64-unknown-none` 和 `x86_64-unknown-uefi` targets、clang/LLD、GNU make、POSIX shell、Python 3、x86_64 QEMU 与 OVMF 固件。GNU Bash 上游 tarball 放在 `_qemu/downloads/bash-5.3.tar.gz`；解包源码与构建目录放在被忽略的 `_qemu/src/` 下。Cargo 工程没有第三方 crate 依赖。
+需要 Rust/Cargo、`x86_64-unknown-none` 和 `x86_64-unknown-uefi` targets、clang/LLD、GNU make、POSIX shell、Python 3、x86_64 QEMU 与 OVMF 固件。GNU Bash 上游 tarball 放在 `_qemu/downloads/bash-5.3.tar.gz`；解包源码与构建目录放在被忽略的 `_qemu/src/` 下。仅启用 `network-stack` 时，内核会依赖 no_std smoltcp；PMM、VMM、调度器、VFS 和 syscall 仍由 SBOS 自行实现。
 
 ```powershell
 rustup target add x86_64-unknown-none x86_64-unknown-uefi
@@ -39,7 +53,7 @@ rustup target add x86_64-unknown-none x86_64-unknown-uefi
 ./tools/run-qemu.ps1
 ```
 
-`build.ps1` 先构建 libc、C 用户程序和上游 Bash，再构建内核与 EFI Loader。它生成 `build/esp`，校验 EFI PE/COFF 类型和静态 ELF64 `ET_EXEC` 入口段，并将 Bash ELF 放为 EFI Loader 读取的 `shell.elf`。QEMU 首次运行会创建 64 MiB 的 `build/sbfs.img`，之后保留该磁盘镜像以验证持久化；要重新格式化时，需在关机后自行移走或重命名该镜像。QEMU 默认用 SDL 显示 GOP framebuffer，并将串口连到启动终端；无窗口模式：
+`build.ps1` 先构建 libc、C 用户程序、上游 Bash 和 Coreutils，再构建内核与 EFI Loader。它生成 `build/esp`，校验 EFI PE/COFF 类型和静态 ELF64 `ET_EXEC` 入口段，并将 Bash ELF 放为 EFI Loader 读取的 `shell.elf`。QEMU 首次运行会创建 64 MiB 的 `build/sbfs.img`，之后保留该磁盘镜像以验证持久化；要重新格式化时，需在关机后自行移走或重命名该镜像。QEMU 默认用 SDL 显示 GOP framebuffer，并将串口连到启动终端；无窗口模式：
 
 ```powershell
 ./tools/run-qemu.ps1 -Display none
@@ -49,7 +63,7 @@ rustup target add x86_64-unknown-none x86_64-unknown-uefi
 
 ```text
 UEFI → SBOS EFI Loader → Rust Kernel → Memory / Interrupt / Object / Task
-    → Native Syscall → VFS / Device / Config / Service / IPC
+    → Native Syscall → VFS / Device / Config / Service / IPC / Network
     → Ring 3 GNU Bash 5.3 → C 用户程序与 POSIX libc
 ```
 
@@ -100,13 +114,14 @@ tools/                  构建、产物校验、QEMU 启动与 OVMF 提取脚本
 
 - PMM 和内核直接映射限于 1 GiB，目标 QEMU 配置为 512 MiB；目前没有 SMP/APIC。
 - SBFS 当前使用整块原始磁盘，不解析分区表；设备驱动仅支持一个 legacy IDE ATA PIO 磁盘和 LBA28。SBFS v1 节点表最多容纳 256 个节点，单个文件最多 8 个 extents，UTF-8 文件名最多 44 字节。
-- SBFS journal 只记录 metadata redo；文件数据先写盘、后提交元数据，因此突然断电时不会获得完整的数据事务保证。时间戳目前是 CPU TSC 计数，不是日历时间；访问时间暂不更新。自定义 ACL 是主体与访问权条目，不采用 POSIX mode 位。
+- SBFS journal 只记录 metadata redo；文件数据先写盘、后提交元数据，因此突然断电时不会获得完整的数据事务保证。SBFS 节点时间戳目前仍是 CPU TSC 计数；访问时间暂不更新。统一时间服务使用 RTC epoch 加 PIT ticks 提供 realtime/monotonic API，但启动平台的 RTC 必须按 UTC 配置。自定义 ACL 是主体与访问权条目，不采用 POSIX mode 位。
 - Symlink、稀疏文件、校验和、快照、压缩、加密、CoW、分区扫描和多磁盘挂载尚未实现。ConfigStore 当前仍驻留 RAM。
 - 无磁盘启动时 tmpfs 单文件上限 1 MiB；这个回退文件系统不提供持久化。
-- 当前 Channel 是有界、非阻塞消息队列；字节流、Handle/Shared Memory 传递和异步通知尚未实现。tmpfs `io_submit` 目前会立即完成。
-- 设备枚举目前覆盖 COM1、UEFI GOP 和 i8042；PCI、持久化存储、网络、音频、GUI 和 ext2 尚未实现。
+- Channel 是有界消息队列，支持 payload、Handle 复制传递和 WaitQueue 唤醒；字节流 Channel、Shared Memory 传递和异步通知尚未实现。tmpfs `io_submit` 目前会立即完成。
+- 设备支持目前包括 COM1、UEFI GOP、i8042、ATA PIO 和 QEMU e1000；PCI 扫描只覆盖 legacy PCI 配置机制和 QEMU 的设备布局。用户态网络目前限于 IPv4 UDP、DNS A 查询和前向解析；TCP、反向解析、IPv6 和通用硬件覆盖尚未实现；音频、GUI 和 ext2 也尚未实现。
 - Bash 当前关闭 GNU Readline、job control、NLS 和多字节 locale；输入使用内核 canonical TTY，尚无行内编辑、历史回放、作业控制或信号语义完整支持。
-- libc 仍不完整：日历实时时钟、目录创建/权限更改、进程信号、完整 POSIX 错误语义、pthread、完整 curses 与 musl 均未实现。已实现 API 之外的调用会显式报错或返回 `ENOSYS`。
+- libc 仍不完整：本地时区数据库、目录创建/权限更改、进程信号、完整 POSIX 错误语义、pthread、完整 curses 与 musl 均未实现。`clock_gettime(CLOCK_REALTIME/CLOCK_MONOTONIC)`、`time`、`gettimeofday` 和 GNU `date` 已接通 RTC/PIT 时间服务。已实现 API 之外的调用会显式报错或返回 `ENOSYS`。
+- `application_sandboxed` 与 `IDENTITY_ADMIN` 目前是预留元数据/Capability，尚无独立 enforcement；实际安全判断使用已实现的 syscall capability、ACL 和 Handle-rights 检查。
 
 GNU GPL version 3 or later，见 [`LICENSE`](LICENSE)。
 

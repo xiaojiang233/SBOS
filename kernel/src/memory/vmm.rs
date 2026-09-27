@@ -12,6 +12,7 @@ const NO_EXECUTE: u64 = 1 << 63;
 const ADDRESS_MASK: u64 = 0x000f_ffff_ffff_f000;
 pub const USER_STACK_TOP: u64 = 0x0000_7fff_ffff_f000;
 const HIGH_FB_BASE: u64 = 0xffff_9000_0000_0000;
+const HIGH_MMIO_BASE: u64 = 0xffff_a000_0000_0000;
 
 #[derive(Clone, Copy)]
 pub struct PageFlags {
@@ -235,6 +236,37 @@ pub fn map_page(
         return Err("VMM is not initialized");
     }
     unsafe { map_page_in(root, virtual_address, physical_address, flags) }
+}
+
+/// Map a device MMIO range into a reserved kernel virtual window.
+/// The returned address has the same page offset as `physical_address`.
+pub fn map_mmio(physical_address: u64, size: u64, slot: u64) -> Result<u64, &'static str> {
+    if size == 0 || slot >= 256 * 1024 * 1024 {
+        return Err("invalid MMIO range");
+    }
+    let page_start = physical_address & !(PAGE_SIZE - 1);
+    let offset = physical_address - page_start;
+    let span = size.checked_add(offset).ok_or("MMIO range overflow")?;
+    let page_count = span
+        .checked_add(PAGE_SIZE - 1)
+        .ok_or("MMIO range overflow")?
+        / PAGE_SIZE;
+    let virtual_start = HIGH_MMIO_BASE
+        .checked_add(slot.checked_mul(256 * 1024 * 1024).ok_or("MMIO slot overflow")?)
+        .ok_or("MMIO virtual address overflow")?;
+    for page in 0..page_count {
+        map_page(
+            virtual_start + page * PAGE_SIZE,
+            page_start + page * PAGE_SIZE,
+            PageFlags {
+                user: false,
+                writable: true,
+                executable: false,
+                cache_disable: true,
+            },
+        )?;
+    }
+    Ok(virtual_start + offset)
 }
 
 pub fn map_page_in_root(
@@ -501,4 +533,8 @@ pub fn copy_to_user(destination: u64, source: &[u8]) -> Result<(), &'static str>
 
 pub fn current_root() -> u64 {
     *ROOT.lock()
+}
+
+pub fn kernel_root() -> u64 {
+    *KERNEL_ROOT.lock()
 }

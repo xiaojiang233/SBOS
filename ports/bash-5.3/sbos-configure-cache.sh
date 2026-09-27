@@ -36,7 +36,7 @@ ac_cv_func_dup2='yes'
 ac_cv_func_fnmatch='no'
 ac_cv_func_getaddrinfo='no'
 ac_cv_func_getcwd='yes'
-ac_cv_func_getdtablesize='no'
+ac_cv_func_getdtablesize='yes'
 ac_cv_func_getgroups='no'
 ac_cv_func_gethostbyname='no'
 ac_cv_func_gethostname='yes'
@@ -82,7 +82,10 @@ ac_cv_func_strchr='yes'
 ac_cv_func_strcoll_works='no'
 ac_cv_func_strerror='yes'
 ac_cv_func_strftime='yes'
-ac_cv_func_strpbrk='no'
+ac_cv_func_strnlen='yes'
+ac_cv_func_strpbrk='yes'
+ac_cv_func_strstr='yes'
+ac_cv_func_strdup='yes'
 ac_cv_func_strtod='no'
 ac_cv_func_strtoimax='no'
 ac_cv_func_strtol='yes'
@@ -337,7 +340,10 @@ export ac_cv_func_strchr
 export ac_cv_func_strcoll_works
 export ac_cv_func_strerror
 export ac_cv_func_strftime
+export ac_cv_func_strnlen
 export ac_cv_func_strpbrk
+export ac_cv_func_strstr
+export ac_cv_func_strdup
 export ac_cv_func_strtod
 export ac_cv_func_strtoimax
 export ac_cv_func_strtol

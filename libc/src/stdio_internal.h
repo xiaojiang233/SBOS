@@ -7,5 +7,9 @@ struct __sbos_FILE {
     unsigned char eof;
     unsigned char error;
     unsigned char owned;
+    unsigned char readable;
+    unsigned char writable;
+    unsigned char last_was_read;
+    unsigned char allocated;
 };
 #endif

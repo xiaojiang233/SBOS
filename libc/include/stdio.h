@@ -5,6 +5,12 @@
 #include <sys/types.h>
 
 typedef struct __sbos_FILE FILE;
+/* SBOS streams are currently unbuffered; kept for Gnulib-compatible callers. */
+size_t __fpending(FILE *stream);
+void __fpurge(FILE *stream);
+size_t __freadahead(FILE *stream);
+int __freading(FILE *stream);
+void __fseterr(FILE *stream);
 #define EOF (-1)
 #define BUFSIZ 4096
 #define SEEK_SET 0
@@ -37,8 +43,10 @@ size_t fread(void *buffer, size_t size, size_t count, FILE *stream);
 size_t fwrite(const void *buffer, size_t size, size_t count, FILE *stream);
 FILE *fopen(const char *path, const char *mode);
 FILE *fdopen(int fd, const char *mode);
+FILE *freopen(const char *path, const char *mode, FILE *stream);
 int fclose(FILE *stream);
 int fflush(FILE *stream);
+int setvbuf(FILE *stream, char *buffer, int mode, size_t size);
 int fileno(FILE *stream);
 int feof(FILE *stream);
 int ferror(FILE *stream);

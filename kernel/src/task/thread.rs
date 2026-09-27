@@ -46,6 +46,7 @@ pub struct Thread {
     pub context: SpinLock<CpuContext>,
     pub state: SpinLock<ThreadState>,
     pub saved_frame: AtomicUsize,
+    wake_deadline: AtomicU64,
     user_ticks: AtomicU64,
 }
 impl Thread {
@@ -63,6 +64,7 @@ impl Thread {
             }),
             state: SpinLock::new(ThreadState::Ready),
             saved_frame: AtomicUsize::new(0),
+            wake_deadline: AtomicU64::new(0),
             user_ticks: AtomicU64::new(0),
         }
     }
@@ -104,6 +106,12 @@ impl Thread {
     }
     pub fn user_ticks(&self) -> u64 {
         self.user_ticks.load(Ordering::Relaxed)
+    }
+    pub fn set_wake_deadline(&self, deadline: u64) {
+        self.wake_deadline.store(deadline, Ordering::Release);
+    }
+    pub fn wake_deadline(&self) -> u64 {
+        self.wake_deadline.load(Ordering::Acquire)
     }
     pub fn set_user_stack(&self, address: u64) {
         self.user_stack.store(address, Ordering::Release);

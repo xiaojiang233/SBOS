@@ -4,6 +4,43 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["qemu"]
+# Reproducible reference configuration used by the QEMU scripts.
+qemu = [
+    "driver-ata",
+    "driver-e1000",
+    "driver-framebuffer",
+    "driver-ps2",
+    "driver-rtc",
+    "fs-sbfs",
+    "fs-tmpfs",
+]
+driver-ata = []
+driver-e1000 = ["driver-pci", "network-stack"]
+driver-framebuffer = []
+driver-pci = []
+driver-ps2 = []
+driver-rtc = []
+fs-sbfs = []
+fs-tmpfs = []
+network-stack = ["dep:smoltcp"]
+
+[dependencies]
+smoltcp = { version = "0.14.0", default-features = false, features = [
+    "alloc",
+    "medium-ethernet",
+    "proto-ipv4",
+    "proto-dhcpv4",
+    "proto-dns",
+    "socket-tcp",
+    "socket-udp",
+    "socket-icmp",
+    "socket-dhcpv4",
+    "socket-dns",
+    "auto-icmp-echo-reply",
+], optional = true }
+
 [[bin]]
 name = "kernel"
 path = "src/main.rs"
