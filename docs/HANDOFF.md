@@ -28,8 +28,10 @@ ignored `_qemu/src/`. Port patches and configure cache live under
   metadata together. Replacing an existing file is supported.
 * The ELF process-entry stack now points at `argc`; the C runtime aligns its
   stack before calling `main`.
-* Bash 5.3.20 builds and links with the freestanding SBOS C runtime. Bash is
-  built without Readline, job control, NLS and multibyte locale support.
+* Bash 5.3.20 builds with bundled GNU Readline and termcap against the
+  freestanding SBOS C runtime. SBOS supplies an inline ANSI `sbos` termcap
+  entry; QMP key injection verified left-arrow insertion into a command.
+  Job control, NLS and multibyte locale support remain disabled.
 * The optional PCI/e1000 + smoltcp stack boots on QEMU and obtains DHCPv4.
   Ring 3 IPv4 UDP supports `socket/bind/connect/sendto/recvfrom` and fd
   `read/write`. libc `getaddrinfo` uses DHCP DNS for IPv4 A records; QEMU
@@ -61,8 +63,9 @@ ignored `_qemu/src/`. Port patches and configure cache live under
    CMOS source assumes UTC; SBFS metadata timestamps still use TSC counts.
 5. Continue libc gaps: `chmod` and `fchmod` currently return
    `ENOSYS`.
-6. Add Readline only after its required termcap/terminal capabilities are
-   implemented and verified. Job control and signal delivery remain incomplete.
+6. Expand terminal behavior and the C runtime around Readline; interactive
+   job control and signal delivery remain incomplete. The current Readline
+   profile is single-byte and has no persistent history file.
 7. Investigate nvi only after the Bash/TTY baseline is stable; it still needs
    curses/terminfo and Berkeley DB support.
 

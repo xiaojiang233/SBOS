@@ -31,7 +31,7 @@ for argument in "$@"; do
             # shellcheck disable=SC2086
             exec clang --target=x86_64-unknown-none-elf -std=gnu89 \
                 -ffreestanding -fno-builtin -fno-stack-protector -fno-pic \
-                -mno-red-zone -DCLK_TCK=100 -DNO_MULTIBYTE_SUPPORT=1 -DTERMIOS_TTY_DRIVER=1 -I"$SBOS_ROOT/libc/include" \
+                -mno-red-zone -DCLK_TCK=100 -DNO_MULTIBYTE_SUPPORT=1 -DNEED_EXTERN_PC=1 -I"$SBOS_ROOT/libc/include" \
                 -I"$SBOS_ROOT/user/runtime/include" -include time.h -include wchar.h -include strings.h \
                 $SBOS_IDENTITY "$@"
             ;;
@@ -40,7 +40,7 @@ done
 
 exec clang --target=x86_64-unknown-none-elf -std=gnu89 \
     -ffreestanding -fno-builtin -fno-stack-protector -fno-pic \
-    -mno-red-zone -DCLK_TCK=100 -DNO_MULTIBYTE_SUPPORT=1 -DTERMIOS_TTY_DRIVER=1 -I"$SBOS_ROOT/libc/include" \
+    -mno-red-zone -DCLK_TCK=100 -DNO_MULTIBYTE_SUPPORT=1 -DNEED_EXTERN_PC=1 -I"$SBOS_ROOT/libc/include" \
     -I"$SBOS_ROOT/user/runtime/include" -include time.h -include wchar.h -include strings.h \
     -fuse-ld=lld -nostdlib -static \
     -Wl,--build-id=none -Wl,-z,max-page-size=0x1000 \

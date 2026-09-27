@@ -78,6 +78,6 @@ not yet been ported. Ring 3 IPv4 UDP and libc `getaddrinfo` A-record lookup
 work; TCP stream listen/accept/read/write works in QEMU, while active connect
 and broader stream semantics still need coverage. Reverse/legacy resolver APIs
 remain missing, so typical network clients are not yet compatible. Locale
-support remains C/POSIX only, Bash
-Readline, job control, NLS, and multibyte locale support remain disabled, and
-unsupported libc calls continue to report their actual errors.
+support remains C/POSIX only. Bash now uses its bundled GNU Readline and
+termcap libraries, while job control, NLS, and multibyte locale support remain
+disabled. Unsupported libc calls continue to report their actual errors.

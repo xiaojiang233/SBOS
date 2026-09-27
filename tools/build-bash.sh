@@ -155,6 +155,13 @@ if [ ! -f config.h ]; then
 inside the Bash source tree so configure can be invoked as ../configure
 (source: $SRC, build: $BUILD)"
     echo "build-bash: configuring in $BUILD"
+    READLINE_OPTION=
+    if [ "${SBOS_BASH_DISABLE_READLINE:-0}" = 1 ]; then
+        READLINE_OPTION=--disable-readline
+        echo "build-bash: disabling GNU Readline by request"
+    else
+        echo "build-bash: enabling bundled GNU Readline"
+    fi
     (
         cd "$BUILD"
         . "$PORT/sbos-configure-cache.sh"
@@ -165,7 +172,7 @@ inside the Bash source tree so configure can be invoked as ../configure
             --host=x86_64-unknown-none \
             --disable-nls \
             --without-bash-malloc \
-            --disable-readline \
+            $READLINE_OPTION \
             --disable-job-control </dev/null
     )
 fi

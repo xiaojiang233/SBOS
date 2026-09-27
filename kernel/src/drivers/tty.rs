@@ -41,11 +41,15 @@ pub struct TerminalAttributes {
 impl TerminalAttributes {
     const fn bootstrap() -> Self {
         let mut control_chars = [0; NCCS];
+        control_chars[0] = 3; // VINTR: Ctrl-C
+        control_chars[1] = 28; // VQUIT: Ctrl-\\
         control_chars[CC_VEOF] = 4;
         control_chars[CC_VTIME] = 0;
         control_chars[CC_VMIN] = 1;
         control_chars[CC_VERASE] = 127;
         control_chars[CC_VKILL] = 21;
+        control_chars[8] = 17; // VSTART: Ctrl-Q
+        control_chars[9] = 19; // VSTOP: Ctrl-S
         Self {
             input_flags: IF_ICRNL,
             output_flags: OF_OPOST | OF_ONLCR,

@@ -15,12 +15,14 @@ the 15 official GNU patches and SBOS port patches, and saves the upstream
 static x86_64 ELF with the SBOS C runtime. `tools/build.ps1` runs this as part
 of the normal build and copies the result to `build/esp/shell.elf`.
 
-The port disables GNU Readline, job control, NLS and multibyte locale support.
-The shell uses the canonical SBOS TTY, so command input and builtins work, but
-interactive line editing, history recall and job control are not available.
-`HISTFILE` starts empty because the current C runtime has no real-time clock or
-permission-changing calls. Network redirection is unavailable and returns
-`ENOSYS`.
+The port builds Bash's bundled GNU Readline and termcap libraries. SBOS passes
+an inline `TERM=sbos` termcap entry to Readline, avoiding a termcap file; the
+framebuffer console handles its cursor and clear-screen ANSI sequences. QEMU
+verified inserting text into the middle of a command with the left-arrow key.
+Job control, NLS and multibyte locale support remain disabled, and signal
+delivery is incomplete. `HISTFILE` remains empty, so Readline history is not
+persistent across shell sessions. Network redirection is unavailable and
+returns `ENOSYS`.
 
 ## POSIX C runtime and filesystem calls
 

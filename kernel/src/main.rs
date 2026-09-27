@@ -242,6 +242,20 @@ pub extern "C" fn kernel_main(info_pointer: *const BootInfo) -> ! {
         shell.len()
     );
     let shell_argv = ["/Applications/bash", "-i"];
+    let terminal_rows = if info.framebuffer_height == 0 {
+        25
+    } else {
+        (info.framebuffer_height / 10).max(1) as u16
+    };
+    let terminal_columns = if info.framebuffer_width == 0 {
+        80
+    } else {
+        (info.framebuffer_width / 6).max(1) as u16
+    };
+    let termcap = alloc::format!(
+        "TERMCAP=sbos|SBOS ANSI console:am:bs:co#{}:li#{}:cl=\\E[H\\E[2J:ce=\\E[K:cd=\\E[J:cm=\\E[%i%d;%dH:cr=\\r:do=\\E[B:ho=\\E[H:le=\\E[D:nd=\\E[C:up=\\E[A:ku=\\E[A:kd=\\E[B:kr=\\E[C:kl=\\E[D:",
+        terminal_columns, terminal_rows
+    );
     let shell_env = [
         "HOME=/Users/Root",
         "PWD=/Users/Root",
@@ -250,6 +264,8 @@ pub extern "C" fn kernel_main(info_pointer: *const BootInfo) -> ! {
         "SHELL=/Applications/bash",
         "PATH=/Applications",
         "HISTFILE=",
+        "TERM=sbos",
+        termcap.as_str(),
     ];
     let loaded = match exec::elf::load_user(shell, &shell_space, &shell_argv, &shell_env) {
         Ok(value) => value,
@@ -259,8 +275,6 @@ pub extern "C" fn kernel_main(info_pointer: *const BootInfo) -> ! {
         }
     };
     let process = task::process::init(memory::vmm::current_root(), "/Applications/bash");
-    let terminal_rows = if info.framebuffer_height == 0 { 25 } else { (info.framebuffer_height / 10).max(1) as u16 };
-    let terminal_columns = if info.framebuffer_width == 0 { 80 } else { (info.framebuffer_width / 6).max(1) as u16 };
     drivers::tty::init(process.pid, terminal_rows, terminal_columns);
     let thread = task::thread::create(process.pid, interrupt_top, loaded.stack_pointer);
     process.threads.lock().push(thread.clone());

@@ -53,6 +53,15 @@ int tcdrain(int fd) {
     return 0;
 }
 
+int tcflow(int fd, int action) {
+    if (!isatty(fd)) { if (errno == 0) errno = ENOTTY; return -1; }
+    if (action < TCOOFF || action > TCION) { errno = EINVAL; return -1; }
+    /* The bootstrap console drains writes synchronously and has no flow queue. */
+    if (action == TCOON) return 0;
+    errno = ENOTSUP;
+    return -1;
+}
+
 int ioctl(int fd, unsigned long request, ...) {
     va_list arguments;
     void *argument;

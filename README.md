@@ -121,7 +121,7 @@ tools/                  构建、产物校验、QEMU 启动与 OVMF 提取脚本
 - 无磁盘启动时 tmpfs 单文件上限 1 MiB；这个回退文件系统不提供持久化。
 - Channel 是有界消息队列，支持 payload、Handle 复制传递和 WaitQueue 唤醒；字节流 Channel、Shared Memory 传递和异步通知尚未实现。tmpfs `io_submit` 目前会立即完成。
 - 设备支持目前包括 COM1、UEFI GOP、i8042 键盘/鼠标、ATA PIO 和 QEMU e1000；PCI 扫描只覆盖 legacy PCI 配置机制和 QEMU 的设备布局。用户态网络已有 IPv4 UDP/TCP 基本路径与 DNS A 前向解析，反向解析、IPv6 和通用硬件覆盖尚未实现。GOP surface、PS/2 mouse events 和受限 X11 server 已有基础实现；X11 认证、完整 client events、compositor、窗口管理器、音频和 ext2 尚未实现。
-- Bash 当前关闭 GNU Readline、job control、NLS 和多字节 locale；输入使用内核 canonical TTY，尚无行内编辑、历史回放、作业控制或信号语义完整支持。
+- Bash 已链接 GNU Readline 和 termcap，并使用内嵌 ANSI 终端描述；QEMU 已验证命令行中间插入。job control、NLS、多字节 locale、跨会话历史文件和完整信号语义尚未实现。
 - libc 仍不完整：本地时区数据库、目录创建/权限更改、进程信号、完整 POSIX 错误语义、pthread、完整 curses 与 musl 均未实现。`clock_gettime(CLOCK_REALTIME/CLOCK_MONOTONIC)`、`time`、`gettimeofday` 和 GNU `date` 已接通 RTC/PIT 时间服务。已实现 API 之外的调用会显式报错或返回 `ENOSYS`。
 - `application_sandboxed` 与 `IDENTITY_ADMIN` 目前是预留元数据/Capability，尚无独立 enforcement；实际安全判断使用已实现的 syscall capability、ACL 和 Handle-rights 检查。
 
