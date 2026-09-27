@@ -51,9 +51,9 @@ ignored `_qemu/src/`. Port patches and configure cache live under
 * A Ring 3 X11 11.0 subset now listens on TCP/6000 in explicit `-noauth`
   development mode. `tools/x11-probe.py` completed setup, CreateWindow,
   MapWindow, CreateGC, PolyFillRectangle, and GetGeometry through a QEMU
-  localhost-only host-forward. Keyboard KeyPress/KeyRelease passed a QMP
-  injection test; pointer event delivery is implemented but still needs
-  injected-mouse verification. See `build/x11-input-smoke.log`.
+  localhost-only host-forward. QMP injection verified keyboard KeyPress/
+  KeyRelease plus pointer MotionNotify/ButtonPress delivery. See
+  `build/x11-pointer-smoke.log`.
 
 ## Next work
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the SBOS development X11 setup and basic window drawing subset."""
+"""Exercise the SBOS X11 setup, drawing, keyboard, and pointer subset."""
 import socket
 import struct
 import sys
@@ -42,6 +42,47 @@ def qmp_send_key(port, key):
                     break
 
 
+def qmp_send_pointer(port):
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+        stream = sock.makefile("rb")
+        greeting = json.loads(stream.readline())
+        if "QMP" not in greeting:
+            raise RuntimeError("invalid QMP greeting")
+        relative_motion = []
+        for _ in range(5):
+            relative_motion.extend((
+                {"type": "rel", "data": {"axis": "x", "value": -100}},
+                {"type": "rel", "data": {"axis": "y", "value": -50}},
+            ))
+        commands = (
+            {"execute": "qmp_capabilities"},
+            {
+                "execute": "input-send-event",
+                "arguments": {"events": relative_motion},
+            },
+            {
+                "execute": "input-send-event",
+                "arguments": {
+                    "events": [{"type": "btn", "data": {"button": "left", "down": True}}]
+                },
+            },
+            {
+                "execute": "input-send-event",
+                "arguments": {
+                    "events": [{"type": "btn", "data": {"button": "left", "down": False}}]
+                },
+            },
+        )
+        for command in commands:
+            sock.sendall(json.dumps(command).encode("ascii") + b"\r\n")
+            while True:
+                response = json.loads(stream.readline())
+                if "error" in response:
+                    raise RuntimeError(f"QMP command failed: {response['error']}")
+                if "return" in response:
+                    break
+
+
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 16000
     qmp_port = int(sys.argv[2]) if len(sys.argv) > 2 else 0
@@ -65,7 +106,8 @@ def main():
             1, 24,
             struct.pack("<IIhhHHHHIIII", window, root, 32, 48,
                         240, 140, 0, 1, 0, (1 << 1) | (1 << 11),
-                        0x003A77B3, (1 << 0) | (1 << 1) | (1 << 15) | (1 << 17)),
+                        0x003A77B3,
+                        (1 << 0) | (1 << 1) | (1 << 2) | (1 << 6) | (1 << 15) | (1 << 17)),
         )
         create_gc = request(55, 0, struct.pack("<IIII", gc, window, 1 << 2, 0x00CC3355))
         map_window = request(8, 0, struct.pack("<I", window))
@@ -100,6 +142,21 @@ def main():
                 if event[0] in (2, 3) and event[1] == 38:
                     key_events.add(event[0])
             print("X11 KeyPress/KeyRelease delivery passed for injected key 'a'")
+
+            qmp_send_pointer(qmp_port)
+            pointer_events = set()
+            while pointer_events != {4, 6}:
+                event = exact(sock, 32)
+                if event[0] == 6:
+                    target = struct.unpack_from("<I", event, 12)[0]
+                    x, y = struct.unpack_from("<hh", event, 24)
+                    if target == window and 0 <= x < 240 and 0 <= y < 140:
+                        pointer_events.add(6)
+                elif event[0] == 4 and event[1] == 1:
+                    target = struct.unpack_from("<I", event, 12)[0]
+                    if target == window:
+                        pointer_events.add(4)
+            print("X11 MotionNotify/ButtonPress delivery passed for injected pointer input")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ This is a bring-up project, not a production-ready OS. The first-stage implement
 - **用户程序**：GNU Bash 5.3（上游 patchlevel 20，含 GNU Readline/termcap）以 Ring 3 交互 Shell 启动；GNU Coreutils 9.12 精选 applets 与独立 GNU grep 3.12 可在 `/Applications` 使用。grep 已在 QEMU 中验证基本/扩展正则、行号、忽略大小写、反向匹配、计数和 quiet 状态。独立 C 程序仍提供 `clear`、`id`、`mv`、`fault`、`channel-probe`、`network-probe`、`desktop-demo`、`mouse-probe`、`tcp-listen-probe`、`xserver` 和 POSIX 自检程序。
 - **兼容接口**：`user/runtime` Rust API、自定义 syscall ABI、`libc/` C runtime，以及 `compat/posix` 适配层。`fork`、`execve`、`waitpid`、pipe、TTY、文件描述符和 `rename` 已有最小可运行路径。
 - **网络 bring-up**：可选 PCI/e1000 驱动使用 PMM DMA 描述符环；可选 `network-stack` 使用 no_std smoltcp，已接入 Ethernet、ARP、IPv4、ICMP、UDP/TCP 协议组件和 DHCPv4 租约获取。QEMU 用户网络实测取得 `10.0.2.15/24`。Ring 3 已实现 IPv4 UDP 和 TCP stream 的基本 socket/fd API，libc `getaddrinfo` 可用 DHCP DNS 解析 IPv4 A 记录。QEMU 已验证 UDP/DNS 往返、TCP listen/accept/read/write 回显。TCP active connect、完整 socket options、IPv6 和 GNU 网络客户端兼容仍在开发。
-- **图形 bring-up**：用户态通过受 `DISPLAY` capability 控制的 syscall 查询 GOP 尺寸、填充矩形和 blit 小图块；`desktop-demo` 可画基础桌面。Ring 3 `/Applications/xserver` 已实现一个可从 QEMU host-forward 连接的 X11 11.0 协议子集，支持 setup、窗口/GC 创建、映射、矩形绘制和几类查询。可选 PS/2 鼠标驱动提供用户态事件接口，Xserver 已加入 pointer motion/button 事件发送逻辑。完整 X.Org server、认证、Xlib 完整兼容、compositor、窗口管理器和键盘事件仍未实现；鼠标注入事件尚待 QEMU 验证，开发原型需显式使用 `-noauth`。
+- **图形 bring-up**：用户态通过 capability syscall 使用 GOP surface；Ring 3 `/Applications/xserver` 提供受限 X11 11.0 子集。QEMU QMP 已验证焦点窗口 KeyPress/KeyRelease、MotionNotify 和 ButtonPress。完整 X.Org、认证、pixmaps、窗口管理器/compositor 及其他输入设备尚未完成；开发模式必须显式使用 `-noauth`。
 
 有块设备时，根 Volume 使用 SBFS，初始目录为 `/Applications`、`/System`、`/Users`、`/Shared` 和 `/Volumes`，并写入 Bash、基础用户程序与欢迎文件。没有可用磁盘时，系统使用同一初始目录布局的 tmpfs。
 
@@ -120,7 +120,7 @@ tools/                  构建、产物校验、QEMU 启动与 OVMF 提取脚本
 - Symlink、稀疏文件、校验和、快照、压缩、加密、CoW、分区扫描和多磁盘挂载尚未实现。ConfigStore 当前仍驻留 RAM。
 - 无磁盘启动时 tmpfs 单文件上限 1 MiB；这个回退文件系统不提供持久化。
 - Channel 是有界消息队列，支持 payload、Handle 复制传递和 WaitQueue 唤醒；字节流 Channel、Shared Memory 传递和异步通知尚未实现。tmpfs `io_submit` 目前会立即完成。
-- 图形 bring-up：用户态可以查询 GOP 尺寸、填充矩形和 blit 小图块；Ring 3 `/Applications/xserver` 已实现受限 X11 11.0 子集，支持窗口绘制和焦点窗口键盘事件。QEMU QMP 注入已验证 KeyPress/KeyRelease；X11 认证、完整协议、compositor 和窗口管理器仍未实现，鼠标客户端注入尚待验证。
+- 图形 bring-up：QMP 注入已端到端验证 X11 键盘及相对鼠标/左键事件。X11 认证、完整协议、pixmaps、compositor 和窗口管理器仍未实现，其他 QEMU/实体鼠标设备尚待验证。
 - Bash 已链接 GNU Readline 和 termcap，并使用内嵌 ANSI 终端描述；QEMU 已验证命令行中间插入。job control、NLS、多字节 locale、跨会话历史文件和完整信号语义尚未实现。
 - libc 仍不完整：本地时区数据库、目录创建/权限更改、进程信号、完整 POSIX 错误语义、pthread、完整 curses 与 musl 均未实现。`clock_gettime(CLOCK_REALTIME/CLOCK_MONOTONIC)`、`time`、`gettimeofday` 和 GNU `date` 已接通 RTC/PIT 时间服务。已实现 API 之外的调用会显式报错或返回 `ENOSYS`。
 - `application_sandboxed` 与 `IDENTITY_ADMIN` 目前是预留元数据/Capability，尚无独立 enforcement；实际安全判断使用已实现的 syscall capability、ACL 和 Handle-rights 检查。

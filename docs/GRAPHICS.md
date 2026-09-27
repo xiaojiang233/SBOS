@@ -49,17 +49,16 @@ The QEMU X11 smoke ran `xserver -noauth -once` and connected a small external
 wire-protocol client over a host-forward bound to `127.0.0.1`. Setup, window
 creation, mapping, rectangle drawing, and a geometry reply all passed. The
 probe source is `tools/x11-probe.py`; the serial transcript is
-`build/x11-input-smoke.log`. Starting `qemu-session.ps1` with `-QmpPort` lets
-the probe inject a key through QMP and verify KeyPress/KeyRelease delivery to
-the focused X window.
+`build/x11-pointer-smoke.log`. With `qemu-session.ps1 -QmpPort`, QMP input
+injection verified KeyPress/KeyRelease on the focused X window and relative
+mouse motion plus left-button delivery to the window under the pointer.
 
 This is not a full X.Org server. Authentication is intentionally not
 implemented: `-noauth` must be supplied, and the QEMU test forwards only to the
 host loopback address. It currently handles one client at a time, does not
 implement a window manager/compositor, pixmaps, fonts, properties, selections,
-most core requests, or X extensions. Pointer and keyboard delivery are
-Keyboard delivery passed an end-to-end QEMU QMP injection test. Pointer
-delivery remains implemented but awaits the same client-level input test.
-The display demo remains available independently.
+most core requests, or X extensions. The QMP check sends relative mouse input;
+other QEMU pointer devices and physical hardware still need testing. The
+display demo remains available independently.
 
 The protocol subset follows the [X Window System Protocol specification](https://www.x.org/releases/current/doc/xproto/x11protocol.pdf).
