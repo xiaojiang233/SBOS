@@ -192,6 +192,8 @@ impl Process {
         }
         self.exit_status.store(status, Ordering::Release);
         self.exit_signal.store(signal, Ordering::Release);
+        #[cfg(feature = "driver-ps2")]
+        crate::drivers::keyboard::release_input(self.pid);
         if crate::drivers::tty::is_foreground(self.pid) {
             if let Some(attributes) = self.terminal_restore.lock().take() {
                 let _ = crate::drivers::tty::set_attributes(attributes, 0);

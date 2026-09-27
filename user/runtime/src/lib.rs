@@ -78,6 +78,8 @@ pub mod syscall {
     pub const MOUSE_READ_EVENT: u64 = 78;
     pub const POSIX_LISTEN: u64 = 79;
     pub const POSIX_ACCEPT: u64 = 80;
+    pub const KEYBOARD_READ_EVENT: u64 = 82;
+    pub const KEYBOARD_CLAIM_INPUT: u64 = 83;
 }
 
 pub mod query {
@@ -116,6 +118,40 @@ pub struct MouseEvent {
     pub buttons: u8,
     pub changed_buttons: u8,
     pub reserved: [u8; 2],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct KeyEvent {
+    pub keycode: u8,
+    pub pressed: u8,
+    pub modifiers: u16,
+    pub reserved: [u8; 4],
+}
+
+pub fn keyboard_read_event(event: &mut KeyEvent, nonblocking: bool) -> isize {
+    unsafe {
+        raw_syscall(
+            syscall::KEYBOARD_READ_EVENT,
+            event as *mut KeyEvent as u64,
+            nonblocking as u64,
+            0, 0, 0, 0,
+        )
+    }
+}
+
+pub fn keyboard_claim_input(claim: bool) -> bool {
+    unsafe {
+        raw_syscall(
+            syscall::KEYBOARD_CLAIM_INPUT,
+            claim as u64,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ) == 0
+    }
 }
 
 pub fn mouse_read_event(event: &mut MouseEvent, nonblocking: bool) -> isize {

@@ -88,7 +88,9 @@ enum sbos_syscall {
     SBOS_MOUSE_READ_EVENT = 78,
     SBOS_POSIX_LISTEN = 79,
     SBOS_POSIX_ACCEPT = 80,
-    SBOS_POSIX_SELECT = 81
+    SBOS_POSIX_SELECT = 81,
+    SBOS_KEYBOARD_READ_EVENT = 82,
+    SBOS_KEYBOARD_CLAIM_INPUT = 83
 };
 
 static inline int64_t sbos_call6(uint64_t number, uint64_t a0, uint64_t a1,
@@ -146,6 +148,23 @@ struct sbos_mouse_event {
     uint8_t changed_buttons;
     uint8_t reserved[2];
 };
+
+struct sbos_key_event {
+    uint8_t keycode;
+    uint8_t pressed;
+    uint16_t modifiers;
+    uint8_t reserved[4];
+};
+
+static inline int64_t sbos_keyboard_read_event(struct sbos_key_event *event,
+                                               int nonblocking) {
+    return sbos_call6(SBOS_KEYBOARD_READ_EVENT, (uint64_t)(uintptr_t)event,
+                      nonblocking != 0, 0, 0, 0, 0);
+}
+
+static inline int64_t sbos_keyboard_claim_input(int claim) {
+    return sbos_call6(SBOS_KEYBOARD_CLAIM_INPUT, claim != 0, 0, 0, 0, 0, 0);
+}
 
 static inline int64_t sbos_mouse_read_event(struct sbos_mouse_event *event,
                                             int nonblocking) {

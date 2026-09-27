@@ -99,6 +99,8 @@ pub enum NativeCall {
     TcpListen = 79,
     TcpAccept = 80,
     PosixSelect = 81,
+    KeyboardReadEvent = 82,
+    KeyboardClaimInput = 83,
 }
 
 struct UserWriter<'a> {
@@ -1471,6 +1473,53 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                     0
                 }
                 #[cfg(not(feature = "driver-ps2-mouse"))]
+                { return Err(ERR_UNSUPPORTED); }
+            }
+            82 => {
+                #[cfg(feature = "driver-ps2")]
+                {
+                    let process = current()?;
+                    if !process.security.capabilities.contains(crate::security::Capabilities::INPUT) {
+                        return Err(ERR_DENIED);
+                    }
+                    if a1 & !1 != 0 { return Err(ERR_INVALID); }
+                    let mut event = None;
+                    let result = wait_until(
+                        crate::drivers::keyboard::wait_queue(),
+                        if a1 & 1 != 0 { 0 } else { u64::MAX },
+                        || crate::drivers::keyboard::try_read_event().map(|value| { event = Some(value); 0 }),
+                    );
+                    if result < 0 { return Err(result); }
+                    let event = event.ok_or(ERR_INVALID)?;
+                    let bytes = unsafe {
+                        core::slice::from_raw_parts(
+                            (&event as *const crate::drivers::keyboard::KeyEvent).cast::<u8>(),
+                            core::mem::size_of::<crate::drivers::keyboard::KeyEvent>(),
+                        )
+                    };
+                    check_out(a0, bytes.len())?;
+                    vmm::copy_to_user(a0, bytes).map_err(|_| ERR_FAULT)?;
+                    0
+                }
+                #[cfg(not(feature = "driver-ps2"))]
+                { return Err(ERR_UNSUPPORTED); }
+            }
+            83 => {
+                #[cfg(feature = "driver-ps2")]
+                {
+                    let process = current()?;
+                    if !process.security.capabilities.contains(crate::security::Capabilities::INPUT) {
+                        return Err(ERR_DENIED);
+                    }
+                    match a0 {
+                        0 => crate::drivers::keyboard::release_input(process.pid),
+                        1 if crate::drivers::keyboard::claim_input(process.pid) => {},
+                        1 => return Err(ERR_DENIED),
+                        _ => return Err(ERR_INVALID),
+                    }
+                    0
+                }
+                #[cfg(not(feature = "driver-ps2"))]
                 { return Err(ERR_UNSUPPORTED); }
             }
             40 => {

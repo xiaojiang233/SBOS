@@ -24,6 +24,15 @@ syscall 78) returns typed events to a caller with the `INPUT` capability.
 `mouse-probe` confirms the driver initializes and the nonblocking event query
 works when the queue is empty. The reference profile enables this feature.
 
+The PS/2 keyboard driver also publishes bounded physical key-transition events
+through `KeyboardReadEvent` (Native syscall 82), while preserving translated
+bytes for the TTY. `KeyboardClaimInput` (syscall 83) gives one input-capable
+process an exclusive lease: while held, physical keys are delivered as events
+and are not copied into the TTY byte stream. The kernel releases the lease when
+its owner exits. Set-1 scan codes use X11-compatible keycodes for ordinary keys
+and common navigation keys. The focused X11 window receives KeyPress and
+KeyRelease events when it selects those masks.
+
 ## X server status
 
 `/Applications/xserver` is now a Ring 3 X11 core-protocol prototype. It is a
@@ -31,7 +40,7 @@ separate C process and uses the TCP listener and GOP display APIs. The current
 subset accepts little- or big-endian X11 11.0 setup with empty authorization,
 reports one 24-bit TrueColor screen, and handles basic window/GC creation,
 map/unmap, configure, `PolyFillRectangle`, `ClearArea`, `GetGeometry`,
-`GetWindowAttributes`, `QueryTree`, `GetInputFocus`, `InternAtom`, and
+`GetWindowAttributes`, `QueryTree`, `SetInputFocus`, `GetInputFocus`, `InternAtom`, and
 `QueryExtension` requests. Pointer motion and button events are emitted for
 windows that select the corresponding core event masks. Unknown requests close
 the client connection.
@@ -40,14 +49,17 @@ The QEMU X11 smoke ran `xserver -noauth -once` and connected a small external
 wire-protocol client over a host-forward bound to `127.0.0.1`. Setup, window
 creation, mapping, rectangle drawing, and a geometry reply all passed. The
 probe source is `tools/x11-probe.py`; the serial transcript is
-`build/x11-smoke-transcript.log`.
+`build/x11-input-smoke.log`. Starting `qemu-session.ps1` with `-QmpPort` lets
+the probe inject a key through QMP and verify KeyPress/KeyRelease delivery to
+the focused X window.
 
 This is not a full X.Org server. Authentication is intentionally not
 implemented: `-noauth` must be supplied, and the QEMU test forwards only to the
 host loopback address. It currently handles one client at a time, does not
 implement a window manager/compositor, pixmaps, fonts, properties, selections,
-most core requests, X extensions, or keyboard events to X clients. Pointer event
-delivery is implemented but has not yet been verified with injected mouse
-motion. The display demo remains available independently.
+most core requests, or X extensions. Pointer and keyboard delivery are
+Keyboard delivery passed an end-to-end QEMU QMP injection test. Pointer
+delivery remains implemented but awaits the same client-level input test.
+The display demo remains available independently.
 
 The protocol subset follows the [X Window System Protocol specification](https://www.x.org/releases/current/doc/xproto/x11protocol.pdf).

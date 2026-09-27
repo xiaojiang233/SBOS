@@ -59,6 +59,8 @@ static struct sbos_display_info display_info;
 static int32_t pointer_x;
 static int32_t pointer_y;
 static uint8_t pointer_buttons;
+static uint32_t input_focus = 1;
+static int keyboard_input_claimed;
 
 static uint16_t get16(const unsigned char *p) {
     return client_little_endian ? (uint16_t)(p[0] | ((uint16_t)p[1] << 8))
@@ -397,6 +399,35 @@ static void pump_pointer_events(int fd) {
     }
 }
 
+static void pump_keyboard_events(int fd) {
+    struct sbos_key_event key;
+    if (!keyboard_input_claimed) return;
+    while (sbos_keyboard_read_event(&key, 1) == 0) {
+        struct XWindow *window = find_window(input_focus);
+        uint32_t mask = key.pressed ? (1u << 0) : (1u << 1);
+        unsigned char event[32] = {0};
+        struct timespec now;
+        uint32_t time_ms = 0;
+        if (!window || !window->mapped || !(window->event_mask & mask)) continue;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) == 0)
+            time_ms = (uint32_t)((uint64_t)now.tv_sec * 1000 + (uint64_t)now.tv_nsec / 1000000);
+        event[0] = key.pressed ? 2 : 3; /* KeyPress / KeyRelease */
+        event[1] = key.keycode;
+        put16(event + 2, sequence_number);
+        put32(event + 4, time_ms);
+        put32(event + 8, 1); /* root */
+        put32(event + 12, window->id);
+        put32(event + 16, 0); /* child */
+        put16(event + 20, (uint16_t)pointer_x);
+        put16(event + 22, (uint16_t)pointer_y);
+        put16(event + 24, (uint16_t)(pointer_x - window->x));
+        put16(event + 26, (uint16_t)(pointer_y - window->y));
+        put16(event + 28, key.modifiers);
+        event[30] = 1; /* same screen */
+        (void)write_exact(fd, event, sizeof(event));
+    }
+}
+
 static int atom_id(const unsigned char *name, uint16_t length, int only_if_exists) {
     unsigned i;
     for (i = 0; i < X11_ATOM_COUNT; ++i)
@@ -535,10 +566,13 @@ static int serve_request(int fd, const unsigned char *request, size_t length) {
             return write_exact(fd, reply, 32);
         }
     case 42: /* SetInputFocus */
+        if (length < 12) return 0;
+        if (get32(request + 4) == 0) input_focus = 1;
+        else if (find_window(get32(request + 4))) input_focus = get32(request + 4);
         return 1;
     case 43: /* GetInputFocus */
         send_reply_header(fd, reply, 1, sequence, 0);
-        put32(reply + 8, 1);
+        put32(reply + 8, input_focus);
         reply[12] = 0;
         return write_exact(fd, reply, 32);
     case 55: /* CreateGC */
@@ -608,6 +642,7 @@ static int serve_client(int fd, int no_auth) {
     memset(gcs, 0, sizeof(gcs));
     memset(atoms, 0, sizeof(atoms));
     next_atom = 100;
+    input_focus = 1;
     if (!setup_client(fd, no_auth)) return 0;
     flags = fcntl(fd, F_GETFL);
     if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return 0;
@@ -615,6 +650,7 @@ static int serve_client(int fd, int no_auth) {
     for (;;) {
         ssize_t count;
         pump_pointer_events(fd);
+        pump_keyboard_events(fd);
         if (used >= 4) {
             uint16_t words = get16(request + 2);
             size_t bytes;
@@ -656,6 +692,9 @@ int main(int argc, char **argv) {
         puts("xserver: no GOP surface");
         return 1;
     }
+    keyboard_input_claimed = sbos_keyboard_claim_input(1) == 0;
+    if (!keyboard_input_claimed)
+        puts("xserver: keyboard unavailable; continuing with pointer input only");
     memset(windows, 0, sizeof(windows));
     memset(gcs, 0, sizeof(gcs));
     memset(atoms, 0, sizeof(atoms));

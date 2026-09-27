@@ -7,6 +7,7 @@ param(
     [int]$LinePauseMilliseconds = 350,
     [string]$Disk = '',
     [string]$HostForwardTcp = '',
+    [int]$QmpPort = 0,
     [switch]$InterruptLog
 )
 # Run the SBOS image in QEMU headless, type a session script at the serial
@@ -85,6 +86,8 @@ if ($HostForwardTcp) {
     $networkBackend += ",hostfwd=tcp:127.0.0.1:$hostPort-:$guestPort"
 }
 
+if ($QmpPort -lt 0 -or $QmpPort -gt 65535) { throw 'QmpPort must be 0 or in the range 1..65535.' }
+
 $arguments = @(
     '-machine', 'pc', '-cpu', 'qemu64', '-m', '512M',
     '-netdev', $networkBackend,
@@ -102,6 +105,9 @@ $arguments = @(
 
 if ($InterruptLog) {
     $arguments += @('-d', 'int,guest_errors', '-D', (Join-Path $root 'build/session-qemu-debug.log'))
+}
+if ($QmpPort -ne 0) {
+    $arguments += @('-qmp', "tcp:127.0.0.1:$QmpPort,server=on,wait=off")
 }
 
 Write-Host "qemu-session: booting (waiting $BootSeconds s before typing)"
