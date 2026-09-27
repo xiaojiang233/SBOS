@@ -12,11 +12,21 @@ size_t mbrtowc(wchar_t *wide_character, const char *bytes, size_t length,
     (void)state;
     if (bytes == 0) {
         if (wide_character != 0) *wide_character = 0;
-        return 1;
+        return 0;
     }
     if (length == 0) return (size_t)-2;
     value = (unsigned char)bytes[0];
     if (value > 0x7f) { errno = EILSEQ; return (size_t)-1; }
+    if (wide_character != 0) *wide_character = (wchar_t)value;
+    return value == 0 ? 0 : 1;
+}
+
+int mbtowc(wchar_t *wide_character, const char *bytes, size_t length) {
+    unsigned char value;
+    if (bytes == 0) return 0; // reset the stateless C-locale conversion state
+    if (length == 0) return -1;
+    value = (unsigned char)bytes[0];
+    if (value > 0x7f) { errno = EILSEQ; return -1; }
     if (wide_character != 0) *wide_character = (wchar_t)value;
     return value == 0 ? 0 : 1;
 }

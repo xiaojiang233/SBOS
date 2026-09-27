@@ -1,10 +1,10 @@
 # GNU userland port plan
 
 This tracks the GNU userland bring-up on SBOS. GNU Bash 5.3 is the Ring 3
-interactive shell, and a selected Coreutils 9.12 single-binary profile now
-provides external commands. Later candidates are grep, sed, findutils,
-diffutils, tar and gzip. Network clients such as wget wait for the Ring 3
-socket and DNS APIs.
+interactive shell, a selected Coreutils 9.12 single-binary profile provides
+external commands, and GNU grep 3.12 is now a separate Ring 3 program. Later
+candidates are sed, findutils, diffutils, tar and gzip. Network clients such as
+wget wait for the Ring 3 socket and DNS APIs.
 
 ## Source versions and build model
 
@@ -20,11 +20,10 @@ that SBOS can link as one installed `.a` archive. That is useful for filling in
 missing host functions, but it also means we need to control each package's
 configured feature set and syscall expectations.
 
-The initial package profile uses Coreutils' single-binary build mode. SBOS does
-not currently implement symlinks or hardlinks, so the build will install the
-same ELF image at each selected `/Applications/<command>` name. Bash supplies
-the command path as `argv[0]`, allowing Coreutils to select its applet without
-changing SBOS's ELF loader or VFS object model.
+The Coreutils profile uses single-binary mode; Bash supplies each selected
+command path as `argv[0]`. GNU grep is built separately and installed at
+`/Applications/grep`. Both binaries are static ELF64 programs that use the SBOS
+C runtime and VFS without depending on symlinks or hardlinks.
 
 Current upstream references: [Coreutils 9.12 source](https://ftp.gnu.org/gnu/coreutils/coreutils-9.12.tar.xz), [GNU Gnulib manual](https://www.gnu.org/software/gnulib/manual/gnulib.html), [grep 3.12 release](https://lists.gnu.org/archive/html/info-gnu/2025-04/msg00008.html), [sed 4.10 release](https://lists.gnu.org/archive/html/info-gnu/2026-04/msg00009.html), and [findutils 4.10.0 release](https://lists.gnu.org/archive/html/bug-findutils/2024-06/msg00017.html).
 
@@ -35,7 +34,7 @@ The built Coreutils ELF is installed under these `/Applications` names:
 `ls`, `mkdir`, `printenv`, `printf`, `pwd`, `rm`, `rmdir`, `seq`, `sleep`,
 `tail`, `tee`, `test`, `tr`, `true`, `wc`, and `yes`. Bash chooses the applet
 from `argv[0]`. The separate C `clear`, `id`, `mv`, desktop, mouse, network,
-TCP, and POSIX probe programs remain available.
+TCP, and POSIX probe programs remain available alongside GNU grep 3.12.
 
 `mkdir`, `rm`, and `rmdir` were added after their VFS syscall paths were
 available. Keep excluding commands whose contracts remain incomplete, such as
@@ -69,12 +68,16 @@ Ring 3 Bash, listed `/Applications`, read `/System/Readme.txt`, and exercised
 Coreutils `printf`, `ls`, and `cat`. It also verified the existing-file `mv`
 flow and the POSIX probe's fork/pipe/waitpid/execve checks; Bash remained
 interactive afterward and exited cleanly.
+The separate GNU grep 3.12 smoke checks `--version`, basic and extended
+regular expressions, `-n`, `-i`, `-v`, `-c`, and `-q` exit status against an
+SBFS file.
 
 Coreutils is a deliberately selected command profile, not a complete GNU
 Coreutils port. `date -u` was QEMU-tested against the RTC/PIT time service.
 `stty`, `df`, and `du` remain excluded because their required
-TTY/volume interfaces are incomplete. Grep, sed, findutils, tar and gzip have
-not yet been ported. Ring 3 IPv4 UDP and libc `getaddrinfo` A-record lookup
+TTY/volume interfaces are incomplete. GNU grep is a single-byte C-locale
+build; sed, findutils, tar and gzip have not yet been ported. Ring 3 IPv4 UDP
+and libc `getaddrinfo` A-record lookup
 work; TCP stream listen/accept/read/write works in QEMU, while active connect
 and broader stream semantics still need coverage. Reverse/legacy resolver APIs
 remain missing, so typical network clients are not yet compatible. Locale

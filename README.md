@@ -21,7 +21,7 @@ This is a bring-up project, not a production-ready OS. The first-stage implement
 - **进程与用户态**：Process、Thread、AddressSpace、独立用户页表、Ring 3 ELF64 Loader、用户栈、自定义 `int 0x80` Native syscall ABI；Process 采用 Running/Exiting/Zombie/Reaped 状态，waitpid 后回收地址空间与线程栈，用户异常不会停掉 Bash。
 - **身份管理**：独立 User/Group Manager，将 Root（UID/GID 0）和 Guest（UID/GID 1000）账户写入 SBFS 的 `/System/Accounts.db`；当前开发启动默认使用 root，账户 API 已有创建/删除入口。
 - **文件和系统服务**：VFS/VNode/File/Directory、携带 MountId 的 `NodeRef`、Device Manager、块设备接口、Volume Manager、SBFS 持久化文件系统（无磁盘时回退 tmpfs）、ConfigStore、Service Manager 和双端有界 Channel。Channel 可以阻塞等待，并以 sender-retains-original 语义复制传递 Handle，保留原 rights。
-- **用户程序**：GNU Bash 5.3（上游 patchlevel 20）以 Ring 3 交互 Shell 启动；GNU Coreutils 9.12 的精选单体构建提供 `basename`、`cat`、`cut`、`date`、`dirname`、`env`、`head`、`ls`、`mkdir`、`printf`、`pwd`、`rm`、`rmdir`、`seq`、`sleep`、`tail`、`tee`、`test`、`tr`、`wc` 等命令。独立 C 程序仍提供 `clear`、`id`、`mv`、`fault`、`channel-probe`、`network-probe`、`desktop-demo`、`mouse-probe`、`tcp-listen-probe`、`xserver` 和 POSIX 自检程序。
+- **用户程序**：GNU Bash 5.3（上游 patchlevel 20，含 GNU Readline/termcap）以 Ring 3 交互 Shell 启动；GNU Coreutils 9.12 精选 applets 与独立 GNU grep 3.12 可在 `/Applications` 使用。grep 已在 QEMU 中验证基本/扩展正则、行号、忽略大小写、反向匹配、计数和 quiet 状态。独立 C 程序仍提供 `clear`、`id`、`mv`、`fault`、`channel-probe`、`network-probe`、`desktop-demo`、`mouse-probe`、`tcp-listen-probe`、`xserver` 和 POSIX 自检程序。
 - **兼容接口**：`user/runtime` Rust API、自定义 syscall ABI、`libc/` C runtime，以及 `compat/posix` 适配层。`fork`、`execve`、`waitpid`、pipe、TTY、文件描述符和 `rename` 已有最小可运行路径。
 - **网络 bring-up**：可选 PCI/e1000 驱动使用 PMM DMA 描述符环；可选 `network-stack` 使用 no_std smoltcp，已接入 Ethernet、ARP、IPv4、ICMP、UDP/TCP 协议组件和 DHCPv4 租约获取。QEMU 用户网络实测取得 `10.0.2.15/24`。Ring 3 已实现 IPv4 UDP 和 TCP stream 的基本 socket/fd API，libc `getaddrinfo` 可用 DHCP DNS 解析 IPv4 A 记录。QEMU 已验证 UDP/DNS 往返、TCP listen/accept/read/write 回显。TCP active connect、完整 socket options、IPv6 和 GNU 网络客户端兼容仍在开发。
 - **图形 bring-up**：用户态通过受 `DISPLAY` capability 控制的 syscall 查询 GOP 尺寸、填充矩形和 blit 小图块；`desktop-demo` 可画基础桌面。Ring 3 `/Applications/xserver` 已实现一个可从 QEMU host-forward 连接的 X11 11.0 协议子集，支持 setup、窗口/GC 创建、映射、矩形绘制和几类查询。可选 PS/2 鼠标驱动提供用户态事件接口，Xserver 已加入 pointer motion/button 事件发送逻辑。完整 X.Org server、认证、Xlib 完整兼容、compositor、窗口管理器和键盘事件仍未实现；鼠标注入事件尚待 QEMU 验证，开发原型需显式使用 `-noauth`。
@@ -55,7 +55,7 @@ rustup target add x86_64-unknown-none x86_64-unknown-uefi
 ./tools/run-qemu.ps1
 ```
 
-`build.ps1` 先构建 libc、C 用户程序、上游 Bash 和 Coreutils，再构建内核与 EFI Loader。它生成 `build/esp`，校验 EFI PE/COFF 类型和静态 ELF64 `ET_EXEC` 入口段，并将 Bash ELF 放为 EFI Loader 读取的 `shell.elf`。QEMU 首次运行会创建 64 MiB 的 `build/sbfs.img`，之后保留该磁盘镜像以验证持久化；要重新格式化时，需在关机后自行移走或重命名该镜像。QEMU 默认用 SDL 显示 GOP framebuffer，并将串口连到启动终端；无窗口模式：
+`build.ps1` 先构建 libc、C 用户程序、上游 Bash、Coreutils 和 GNU grep，再构建内核与 EFI Loader。它生成 `build/esp`，校验 EFI PE/COFF 类型和静态 ELF64 `ET_EXEC` 入口段，并将 Bash ELF 放为 EFI Loader 读取的 `shell.elf`。QEMU 首次运行会创建 64 MiB 的 `build/sbfs.img`，之后保留该磁盘镜像以验证持久化；要重新格式化时，需在关机后自行移走或重命名该镜像。QEMU 默认用 SDL 显示 GOP framebuffer，并将串口连到启动终端；无窗口模式：
 
 ```powershell
 ./tools/run-qemu.ps1 -Display none
@@ -120,7 +120,7 @@ tools/                  构建、产物校验、QEMU 启动与 OVMF 提取脚本
 - Symlink、稀疏文件、校验和、快照、压缩、加密、CoW、分区扫描和多磁盘挂载尚未实现。ConfigStore 当前仍驻留 RAM。
 - 无磁盘启动时 tmpfs 单文件上限 1 MiB；这个回退文件系统不提供持久化。
 - Channel 是有界消息队列，支持 payload、Handle 复制传递和 WaitQueue 唤醒；字节流 Channel、Shared Memory 传递和异步通知尚未实现。tmpfs `io_submit` 目前会立即完成。
-- 设备支持目前包括 COM1、UEFI GOP、i8042 键盘/鼠标、ATA PIO 和 QEMU e1000；PCI 扫描只覆盖 legacy PCI 配置机制和 QEMU 的设备布局。用户态网络已有 IPv4 UDP/TCP 基本路径与 DNS A 前向解析，反向解析、IPv6 和通用硬件覆盖尚未实现。GOP surface、PS/2 mouse events 和受限 X11 server 已有基础实现；X11 认证、完整 client events、compositor、窗口管理器、音频和 ext2 尚未实现。
+- 图形 bring-up：用户态可以查询 GOP 尺寸、填充矩形和 blit 小图块；Ring 3 `/Applications/xserver` 已实现受限 X11 11.0 子集，支持窗口绘制和焦点窗口键盘事件。QEMU QMP 注入已验证 KeyPress/KeyRelease；X11 认证、完整协议、compositor 和窗口管理器仍未实现，鼠标客户端注入尚待验证。
 - Bash 已链接 GNU Readline 和 termcap，并使用内嵌 ANSI 终端描述；QEMU 已验证命令行中间插入。job control、NLS、多字节 locale、跨会话历史文件和完整信号语义尚未实现。
 - libc 仍不完整：本地时区数据库、目录创建/权限更改、进程信号、完整 POSIX 错误语义、pthread、完整 curses 与 musl 均未实现。`clock_gettime(CLOCK_REALTIME/CLOCK_MONOTONIC)`、`time`、`gettimeofday` 和 GNU `date` 已接通 RTC/PIT 时间服务。已实现 API 之外的调用会显式报错或返回 `ENOSYS`。
 - `application_sandboxed` 与 `IDENTITY_ADMIN` 目前是预留元数据/Capability，尚无独立 enforcement；实际安全判断使用已实现的 syscall capability、ACL 和 Handle-rights 检查。

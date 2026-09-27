@@ -33,6 +33,7 @@ int *__errno_location(void);
 #define ENOSPC 28
 #define ESPIPE 29
 #define EROFS 30
+#define EMLINK 31
 #define EDEADLK 35
 #define ELOOP 40
 #define ENOMSG 42

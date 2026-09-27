@@ -1,0 +1,12 @@
+printf 'alpha\nBeta\nalphabet\n' > /Users/Root/grep-input.txt
+grep --version
+grep -E '^(alpha|Beta)$' /Users/Root/grep-input.txt
+grep alpha /Users/Root/grep-input.txt
+grep -n -i beta /Users/Root/grep-input.txt
+grep -v alpha /Users/Root/grep-input.txt
+grep -c alpha /Users/Root/grep-input.txt
+grep -q alpha /Users/Root/grep-input.txt
+echo grep-match-status=$?
+grep -q missing /Users/Root/grep-input.txt
+echo grep-miss-status=$?
+exit

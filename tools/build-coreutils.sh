@@ -21,12 +21,14 @@ cd "$BUILD"
 PROFILE_HASH=$(
     sha256sum "$ROOT/tools/build-coreutils.sh" "$ROOT/tools/prepare-coreutils.sh" \
         "$ROOT/tools/coreutils-cc.sh" "$SOURCE/configure" \
+        "$ROOT/libc/include/wchar.h" "$ROOT/libc/src/wchar.c" \
         "$ROOT"/tools/patches/coreutils-9.12-*.patch |
         sha256sum | cut -d ' ' -f1
 )
 PROFILE_FILE="$BUILD/.sbos-configure-profile"
 
 if [ ! -f Makefile ] || [ "$(cat "$PROFILE_FILE" 2>/dev/null || true)" != "$PROFILE_HASH" ]; then
+rm -f config.cache
 gt_cv_locale_fr=none \
 gt_cv_locale_ja=none \
 gt_cv_locale_en_utf8=none \
@@ -39,6 +41,8 @@ gl_cv_socklen_t_equiv=int \
 gl_cv_func_strerror_0_works=yes \
 gl_cv_func_strtod_works='no (underflow problem)' \
 ac_cv_header_sys_select_h=yes \
+ac_cv_func_mbtowc=yes \
+ac_cv_func_mbrtowc=yes \
 CC="$ROOT/tools/coreutils-cc.sh" \
 CFLAGS='-O2 -D_POSIX_VERSION=200809L -DNO_MULTIBYTE_SUPPORT=1' \
 "$SOURCE/configure" \

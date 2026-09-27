@@ -54,7 +54,7 @@ of the current build.
 
 The verified shell smoke transcript starts with `bash-5.3#`, reports Bash
 `5.3.20(...)-release`, and shows `pwd` as `/Users/Root`. `ls /Applications`
-lists Bash, the selected Coreutils applets, the C utilities and `posix-probe`,
+lists Bash, GNU grep, the selected Coreutils applets, the C utilities and `posix-probe`,
 with no Rust shell entry. GNU `ls`, `cat`, and `printf` run as external Ring 3
 programs. `mv` replaces an existing target, `cat` reads the replacement
 contents, and the POSIX probe reports successful `rename`,
@@ -71,7 +71,9 @@ RTC is present.
 The Coreutils 9.12 profile includes `[`, `basename`, `cat`, `cut`, `date`,
 `dirname`, `env`, `false`, `head`, `ls`, `mkdir`, `printenv`, `printf`, `pwd`,
 `rm`, `rmdir`, `seq`, `sleep`, `tail`, `tee`, `test`, `tr`, `true`, `wc`, and
-`yes`. Commands with incomplete TTY/volume contracts, including `stty`, `df`,
+`yes`. GNU grep 3.12 is separately installed and QEMU-tested with BRE/ERE,
+line-number, ignore-case, invert-match, count and quiet modes. Commands with
+incomplete TTY/volume contracts, including `stty`, `df`,
 and `du`, are not included. The time implementation assumes the CMOS RTC is
 configured as UTC; regional timezone data and daylight-saving rules are not
 available.

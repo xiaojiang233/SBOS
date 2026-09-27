@@ -8,6 +8,8 @@ typedef unsigned int mbstate_t;
 
 size_t mbrtowc(wchar_t *wide_character, const char *bytes, size_t length,
                mbstate_t *state);
+int mbtowc(wchar_t *wide_character, const char *bytes, size_t length);
+int wctomb(char *bytes, wchar_t wide_character);
 size_t wcrtomb(char *bytes, wchar_t wide_character, mbstate_t *state);
 wchar_t *wmemcpy(wchar_t *destination, const wchar_t *source, size_t count);
 wint_t towlower(wint_t wide_character);

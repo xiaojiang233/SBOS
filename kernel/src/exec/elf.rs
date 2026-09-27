@@ -151,8 +151,11 @@ pub fn load_user(
         return Err("process arguments exceed the initial stack budget");
     }
 
-    // Eight pages provide a useful bootstrap stack while keeping the mapping small.
-    let stack_start = vmm::USER_STACK_TOP - 8 * pmm::PAGE_SIZE;
+    // GNU user programs use substantially more than the old 32 KiB bootstrap
+    // stack during locale, regex, and stdio initialization. Reserve 256 KiB per
+    // process main stack; a guard page remains immediately below it.
+    const USER_STACK_PAGES: u64 = 64;
+    let stack_start = vmm::USER_STACK_TOP - USER_STACK_PAGES * pmm::PAGE_SIZE;
     let mut top_frame = 0;
     for page in (stack_start..vmm::USER_STACK_TOP).step_by(pmm::PAGE_SIZE as usize) {
         let physical = pmm::allocate_frame().ok_or("out of memory allocating user stack")?;

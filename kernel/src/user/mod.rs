@@ -295,6 +295,7 @@ fn secure_system_layout() -> Result<(), &'static str> {
         ("/Volumes", ROOT_UID, ROOT_GID, system_directory_acl()),
         ("/System/Readme.txt", ROOT_UID, ROOT_GID, system_file_acl()),
         ("/Applications/bash", ROOT_UID, ROOT_GID, system_file_acl()),
+        ("/Applications/grep", ROOT_UID, ROOT_GID, system_file_acl()),
         ("/Applications/posix-probe", ROOT_UID, ROOT_GID, system_file_acl()),
         ("/Applications/bash", ROOT_UID, ROOT_GID, system_file_acl()),
     ];

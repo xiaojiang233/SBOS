@@ -6,6 +6,7 @@ use std::path::PathBuf;
 const APPLICATIONS: &[(&str, &str)] = &[
     ("posix-probe.elf", "build/userland/posix-probe.elf"),
     ("coreutils.elf", "build/userland/coreutils.elf"),
+    ("grep.elf", "build/userland/grep.elf"),
     ("clear.elf", "build/userland/clear.elf"),
     ("id.elf", "build/userland/id.elf"),
     ("mv.elf", "build/userland/mv.elf"),

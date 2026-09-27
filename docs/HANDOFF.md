@@ -23,6 +23,10 @@ ignored `_qemu/src/`. Port patches and configure cache live under
   `false`, `head`, `ls`, `printenv`, `printf`, `pwd`, `tail`, `tee`, `test`,
   `tr`, `true`, `wc`, and `yes`. C `clear`, `id`, `mv`, fault and probe
   programs remain separate.
+* GNU grep 3.12 is built as a separate static ELF using imported Gnulib regex
+  support and is installed as `/Applications/grep`. Its upstream archive's
+  detached signature was verified; QEMU smoke covers BRE/ERE and selection
+  flags against an SBFS file.
 * `rename()` is implemented through POSIX syscall 63, VFS and both filesystem
   backends. SBFS journals source/destination directory entry changes and
   metadata together. Replacing an existing file is supported.
@@ -47,8 +51,9 @@ ignored `_qemu/src/`. Port patches and configure cache live under
 * A Ring 3 X11 11.0 subset now listens on TCP/6000 in explicit `-noauth`
   development mode. `tools/x11-probe.py` completed setup, CreateWindow,
   MapWindow, CreateGC, PolyFillRectangle, and GetGeometry through a QEMU
-  localhost-only host-forward. Pointer event delivery is implemented but
-  still needs injected-mouse verification. See `build/x11-smoke-transcript.log`.
+  localhost-only host-forward. Keyboard KeyPress/KeyRelease passed a QMP
+  injection test; pointer event delivery is implemented but still needs
+  injected-mouse verification. See `build/x11-input-smoke.log`.
 
 ## Next work
 
@@ -57,7 +62,7 @@ ignored `_qemu/src/`. Port patches and configure cache live under
    access; the current server explicitly disables it for the private QEMU test.
 2. Add broader TCP semantics and GNU utilities. The resolver currently handles
    IPv4 A records only; complete legacy host APIs and reverse lookup.
-3. Continue Coreutils/GNU ports (grep, sed, findutils, tar, gzip) by enabling
+3. Continue GNU ports (sed, findutils, diffutils, tar, gzip) by enabling
    commands only after their real syscall contracts and QEMU behavior work.
 4. Extend locale beyond C/POSIX and add a timezone database/policy. The current
    CMOS source assumes UTC; SBFS metadata timestamps still use TSC counts.
