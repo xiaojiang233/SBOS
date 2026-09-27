@@ -8,6 +8,7 @@ pub enum FdKind {
     PipeRead = 4,
     PipeWrite = 5,
     SocketUdp = 6,
+    SocketTcp = 7,
 }
 
 #[derive(Clone, Copy)]
@@ -104,9 +105,22 @@ impl FdTable {
         count
     }
 
+    pub fn collect_tcp_socket_ids(&self, ids: &mut [u32; 128]) -> usize {
+        let mut count = 0;
+        for entry in &self.entries {
+            if entry.kind == FdKind::SocketTcp {
+                ids[count] = entry.handle;
+                count += 1;
+            }
+        }
+        count
+    }
+
     pub fn clear_and_collect_sockets(&mut self, ids: &mut [u32; 128]) -> usize {
         let count = self.collect_socket_ids(ids);
         self.entries.fill(CLOSED_FD);
         count
     }
+
+    pub fn clear(&mut self) { self.entries.fill(CLOSED_FD); }
 }

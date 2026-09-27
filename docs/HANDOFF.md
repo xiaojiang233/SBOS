@@ -42,21 +42,28 @@ ignored `_qemu/src/`. Port patches and configure cache live under
   `build/time-smoke-transcript.log`: QEMU reports a valid RTC epoch, prints
   `date -u` calendar/epoch output, then passes `posix-probe` and exits Bash.
   The general shell smoke transcript is `build/session-transcript.log`.
+* A Ring 3 X11 11.0 subset now listens on TCP/6000 in explicit `-noauth`
+  development mode. `tools/x11-probe.py` completed setup, CreateWindow,
+  MapWindow, CreateGC, PolyFillRectangle, and GetGeometry through a QEMU
+  localhost-only host-forward. Pointer event delivery is implemented but
+  still needs injected-mouse verification. See `build/x11-smoke-transcript.log`.
 
 ## Next work
 
-1. Add TCP stream socket semantics and port more GNU utilities. The resolver
-   currently handles IPv4 A records only; complete legacy host APIs and
-   reverse lookup after TCP is available.
-2. Continue Coreutils/GNU ports (grep, sed, findutils, tar, gzip) by enabling
+1. Expand the X11 subset with client events and pixmaps, then implement a
+   compositor/window manager. Add authentication before offering remote X11
+   access; the current server explicitly disables it for the private QEMU test.
+2. Add broader TCP semantics and GNU utilities. The resolver currently handles
+   IPv4 A records only; complete legacy host APIs and reverse lookup.
+3. Continue Coreutils/GNU ports (grep, sed, findutils, tar, gzip) by enabling
    commands only after their real syscall contracts and QEMU behavior work.
-3. Extend locale beyond C/POSIX and add a timezone database/policy. The current
+4. Extend locale beyond C/POSIX and add a timezone database/policy. The current
    CMOS source assumes UTC; SBFS metadata timestamps still use TSC counts.
-4. Continue libc gaps: `mkdir`, `chmod`, and `fchmod` currently return
+5. Continue libc gaps: `chmod` and `fchmod` currently return
    `ENOSYS`.
-5. Add Readline only after its required termcap/terminal capabilities are
+6. Add Readline only after its required termcap/terminal capabilities are
    implemented and verified. Job control and signal delivery remain incomplete.
-6. Investigate nvi only after the Bash/TTY baseline is stable; it still needs
+7. Investigate nvi only after the Bash/TTY baseline is stable; it still needs
    curses/terminfo and Berkeley DB support.
 
 Do not claim complete POSIX compliance. Keep unsupported calls explicit and

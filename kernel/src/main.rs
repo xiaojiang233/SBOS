@@ -51,6 +51,11 @@ const MV_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/mv.elf"));
 const FAULT_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fault.elf"));
 const CHANNEL_PROBE_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/channel-probe.elf"));
 const NETWORK_PROBE_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/network-probe.elf"));
+const DESKTOP_DEMO_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/desktop-demo.elf"));
+const MOUSE_PROBE_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/mouse-probe.elf"));
+const TCP_LISTEN_PROBE_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/tcp-listen-probe.elf"));
+const XSERVER_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/xserver.elf"));
+const SELECT_PROBE_IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/select-probe.elf"));
 
 /// User programs installed under /Applications next to the shell. Images that
 /// are not ELF files (because the port was not built) are skipped at install
@@ -87,6 +92,11 @@ const APPLICATION_IMAGES: &[(&str, &[u8])] = &[
     ("fault", FAULT_IMAGE),
     ("channel-probe", CHANNEL_PROBE_IMAGE),
     ("network-probe", NETWORK_PROBE_IMAGE),
+    ("desktop-demo", DESKTOP_DEMO_IMAGE),
+    ("mouse-probe", MOUSE_PROBE_IMAGE),
+    ("tcp-listen-probe", TCP_LISTEN_PROBE_IMAGE),
+    ("xserver", XSERVER_IMAGE),
+    ("select-probe", SELECT_PROBE_IMAGE),
 ];
 
 #[global_allocator]
@@ -181,6 +191,17 @@ pub extern "C" fn kernel_main(info_pointer: *const BootInfo) -> ! {
     drivers::console::write(b"\r\nSBOS: UEFI boot completed\r\n");
 
     device::init(cfg!(feature = "driver-framebuffer") && info.framebuffer_base != 0);
+    #[cfg(feature = "driver-ps2-mouse")]
+    {
+        let (width, height, _) = drivers::framebuffer::surface_info().unwrap_or((640, 480, 0));
+        match drivers::mouse::init(width, height) {
+            Ok(()) => {
+                device::register_input_device("PC", "PS/2 auxiliary mouse", "i8042-mouse");
+                kprintln!("PS/2 mouse online (polling input events)");
+            }
+            Err(error) => kprintln!("PS/2 mouse unavailable: {}", error),
+        }
+    }
     #[cfg(feature = "driver-ata")]
     drivers::ata::init();
     #[cfg(feature = "driver-e1000")]

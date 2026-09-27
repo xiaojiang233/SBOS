@@ -24,6 +24,21 @@ int connect(int socket_fd, const struct sockaddr *address, socklen_t address_len
         (uint64_t)(uintptr_t)address, address_length, 0, 0, 0));
 }
 
+int listen(int socket_fd, int backlog) {
+    if (backlog < 0) { errno = EINVAL; return -1; }
+    return (int)__sbos_posix_checked_result(__sbos_syscall6(
+        SBOS_POSIX_LISTEN, (uint64_t)(uint32_t)socket_fd,
+        (uint64_t)(uint32_t)backlog, 0, 0, 0, 0));
+}
+
+int accept(int socket_fd, struct sockaddr *address, socklen_t *address_length) {
+    if ((address == 0) != (address_length == 0)) { errno = EFAULT; return -1; }
+    return (int)__sbos_posix_checked_result(__sbos_syscall6(
+        SBOS_POSIX_ACCEPT, (uint64_t)(uint32_t)socket_fd,
+        (uint64_t)(uintptr_t)address, (uint64_t)(uintptr_t)address_length,
+        0, 0, 0));
+}
+
 ssize_t sendto(int socket_fd, const void *buffer, size_t length, int flags,
                const struct sockaddr *destination, socklen_t destination_length) {
     if (length != 0 && buffer == 0) { errno = EFAULT; return -1; }

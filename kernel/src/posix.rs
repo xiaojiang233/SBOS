@@ -43,6 +43,11 @@ const EADDRINUSE: isize = 98;
 const EADDRNOTAVAIL: isize = 99;
 const EAFNOSUPPORT: isize = 97;
 const EPROTONOSUPPORT: isize = 93;
+const ECONNREFUSED: isize = 111;
+const EISCONN: isize = 106;
+const ETIMEDOUT: isize = 110;
+const EAGAIN: isize = 11;
+const EOVERFLOW: isize = 75;
 const MAX_COPY: usize = 4096;
 const FD_LIMIT: usize = 128;
 const EXECVE_SYSCALL: u64 = 61;
@@ -64,10 +69,12 @@ const F_GETFL: u64 = 3;
 const F_SETFL: u64 = 4;
 const FD_CLOEXEC: u32 = 1;
 const AF_INET: u16 = 2;
+const SOCK_STREAM: u32 = 1;
 const SOCK_DGRAM: u32 = 2;
 const SOCK_CLOEXEC: u32 = 0x80000;
 const SOCK_NONBLOCK: u32 = 0x800;
 const IPPROTO_UDP: u32 = 17;
+const IPPROTO_TCP: u32 = 6;
 const MAX_UDP_PAYLOAD: usize = 4096;
 
 fn current() -> Result<Arc<Process>, isize> {
@@ -239,6 +246,10 @@ fn close_entry(process: &Arc<Process>, entry: FdEntry) {
             #[cfg(feature = "network-stack")]
             crate::network::udp_release(entry.handle);
         }
+        FdKind::SocketTcp => {
+            #[cfg(feature = "network-stack")]
+            crate::network::tcp_release(entry.handle);
+        }
         _ => {}
     }
 }
@@ -254,6 +265,11 @@ fn duplicate_entry(process: &Arc<Process>, source: FdEntry) -> Result<FdEntry, i
         FdKind::SocketUdp => {
             #[cfg(feature = "network-stack")]
             crate::network::udp_retain(source.handle).map_err(|_| -EBADF)?;
+            return Ok(FdEntry { descriptor_flags: 0, ..source });
+        }
+        FdKind::SocketTcp => {
+            #[cfg(feature = "network-stack")]
+            crate::network::tcp_retain(source.handle).map_err(|_| -EBADF)?;
             return Ok(FdEntry { descriptor_flags: 0, ..source });
         }
         _ => return Err(-EBADF),
@@ -532,6 +548,10 @@ fn posix_read(process: &Arc<Process>, fd: usize, pointer: u64, requested: usize)
         FdKind::SocketUdp => return posix_receive_from(process, fd, pointer, length, 0, 0, 0),
         #[cfg(not(feature = "network-stack"))]
         FdKind::SocketUdp => return Err(-ENOSYS),
+        #[cfg(feature = "network-stack")]
+        FdKind::SocketTcp => return posix_tcp_receive(process, fd, pointer, length),
+        #[cfg(not(feature = "network-stack"))]
+        FdKind::SocketTcp => return Err(-ENOSYS),
         FdKind::ConsoleWrite | FdKind::PipeWrite => return Err(-EBADF),
         FdKind::Closed => return Err(-EBADF),
     };
@@ -574,6 +594,10 @@ fn posix_write(process: &Arc<Process>, fd: usize, pointer: u64, requested: usize
             .map_err(map_udp_error)?,
         #[cfg(not(feature = "network-stack"))]
         FdKind::SocketUdp => return Err(-ENOSYS),
+        #[cfg(feature = "network-stack")]
+        FdKind::SocketTcp => return posix_tcp_write(process, fd, input),
+        #[cfg(not(feature = "network-stack"))]
+        FdKind::SocketTcp => return Err(-ENOSYS),
         FdKind::ConsoleRead | FdKind::PipeRead | FdKind::Closed => return Err(-EBADF),
     };
     Ok(count as isize)
@@ -688,6 +712,23 @@ fn map_udp_error(error: crate::network::UdpError) -> isize {
 }
 
 #[cfg(feature = "network-stack")]
+fn map_tcp_error(error: crate::network::TcpError) -> isize {
+    match error {
+        crate::network::TcpError::NotReady => -ENETDOWN,
+        crate::network::TcpError::NotFound => -EBADF,
+        crate::network::TcpError::NoSpace => -ENOBUFS,
+        crate::network::TcpError::AddressInUse => -EADDRINUSE,
+        crate::network::TcpError::AddressNotAvailable => -EADDRNOTAVAIL,
+        crate::network::TcpError::NotConnected => -ENOTCONN,
+        crate::network::TcpError::ConnectionRefused => -ECONNREFUSED,
+        crate::network::TcpError::MessageTooLarge => -EMSGSIZE,
+        crate::network::TcpError::WouldBlock => -EAGAIN,
+        crate::network::TcpError::Closed => -EPIPE,
+        crate::network::TcpError::Invalid => -EINVAL,
+    }
+}
+
+#[cfg(feature = "network-stack")]
 fn posix_socket(process: &Arc<Process>, frame: &crate::arch::x86_64::idt::TrapFrame) -> Result<isize, isize> {
     if !process.security.capabilities.contains(crate::security::Capabilities::NETWORK) {
         return Err(-EACCES);
@@ -696,21 +737,32 @@ fn posix_socket(process: &Arc<Process>, frame: &crate::arch::x86_64::idt::TrapFr
     let kind = frame.rsi as u32;
     let protocol = frame.rdx as u32;
     if domain != AF_INET { return Err(-EAFNOSUPPORT); }
-    if kind & !(SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK) != 0 || kind & SOCK_DGRAM != SOCK_DGRAM {
+    let socket_kind = kind & (SOCK_STREAM | SOCK_DGRAM);
+    if kind & !(SOCK_STREAM | SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK) != 0
+        || (socket_kind != SOCK_STREAM && socket_kind != SOCK_DGRAM) {
         return Err(-EPROTONOSUPPORT);
     }
-    if protocol != 0 && protocol != IPPROTO_UDP { return Err(-EPROTONOSUPPORT); }
-    let socket = crate::network::udp_open().map_err(map_udp_error)?;
+    let socket = match socket_kind {
+        SOCK_DGRAM if protocol == 0 || protocol == IPPROTO_UDP => crate::network::udp_open()
+            .map(|id| (id, FdKind::SocketUdp)).map_err(map_udp_error)?,
+        SOCK_STREAM if protocol == 0 || protocol == IPPROTO_TCP => crate::network::tcp_open()
+            .map(|id| (id, FdKind::SocketTcp)).map_err(map_tcp_error)?,
+        _ => return Err(-EPROTONOSUPPORT),
+    };
     let entry = FdEntry {
-        handle: socket,
-        kind: FdKind::SocketUdp,
+        handle: socket.0,
+        kind: socket.1,
         status_flags: if kind & SOCK_NONBLOCK != 0 { O_NONBLOCK } else { 0 },
         descriptor_flags: if kind & SOCK_CLOEXEC != 0 { FD_CLOEXEC } else { 0 },
     };
     match allocate_descriptor(process, entry, 0) {
         Ok(fd) => Ok(fd as isize),
         Err(error) => {
-            crate::network::udp_release(socket);
+            match socket.1 {
+                FdKind::SocketUdp => crate::network::udp_release(socket.0),
+                FdKind::SocketTcp => crate::network::tcp_release(socket.0),
+                _ => {}
+            }
             Err(error)
         }
     }
@@ -728,11 +780,16 @@ fn posix_bind(process: &Arc<Process>, fd: usize, address: u64, length: usize) ->
     if !process.security.capabilities.contains(crate::security::Capabilities::NETWORK) {
         return Err(-EACCES);
     }
-    let socket = require_udp_socket(process, fd)?;
+    let entry = process.fds.lock().get(fd).ok_or(-EBADF)?;
+    if !matches!(entry.kind, FdKind::SocketUdp | FdKind::SocketTcp) { return Err(-ENOTSOCK); }
     let address = read_ipv4_sockaddr(address, length)?;
-    crate::network::udp_bind(socket, address.address, address.port)
-        .map(|_| 0)
-        .map_err(map_udp_error)
+    match entry.kind {
+        FdKind::SocketUdp => crate::network::udp_bind(entry.handle, address.address, address.port)
+            .map(|_| 0).map_err(map_udp_error),
+        FdKind::SocketTcp => crate::network::tcp_bind(entry.handle, address.address, address.port)
+            .map(|_| 0).map_err(map_tcp_error),
+        _ => Err(-ENOTSOCK),
+    }
 }
 
 #[cfg(feature = "network-stack")]
@@ -740,12 +797,29 @@ fn posix_connect(process: &Arc<Process>, fd: usize, address: u64, length: usize)
     if !process.security.capabilities.contains(crate::security::Capabilities::NETWORK) {
         return Err(-EACCES);
     }
-    let socket = require_udp_socket(process, fd)?;
+    let entry = process.fds.lock().get(fd).ok_or(-EBADF)?;
+    if !matches!(entry.kind, FdKind::SocketUdp | FdKind::SocketTcp) { return Err(-ENOTSOCK); }
     let address = read_ipv4_sockaddr(address, length)?;
-    crate::network::udp_connect(socket, crate::network::UdpPeer {
-        address: address.address,
-        port: address.port,
-    }).map(|_| 0).map_err(map_udp_error)
+    let peer = crate::network::UdpPeer { address: address.address, port: address.port };
+    match entry.kind {
+        FdKind::SocketUdp => crate::network::udp_connect(entry.handle, peer)
+            .map(|_| 0).map_err(map_udp_error),
+        FdKind::SocketTcp => {
+            crate::network::tcp_connect(entry.handle, peer).map_err(map_tcp_error)?;
+            let result = syscall::wait_until(crate::network::tcp_wait_queue(), 1000, || {
+                match crate::network::tcp_state(entry.handle) {
+                    Ok(smoltcp::socket::tcp::State::Established) => Some(0),
+                    Ok(smoltcp::socket::tcp::State::Closed) => Some(-ECONNREFUSED),
+                    Ok(_) => None,
+                    Err(error) => Some(map_tcp_error(error)),
+                }
+            });
+            if result == -7 { return Err(-ETIMEDOUT); }
+            if result < 0 { return Err(result); }
+            Ok(0)
+        }
+        _ => Err(-ENOTSOCK),
+    }
 }
 
 #[cfg(feature = "network-stack")]
@@ -757,19 +831,25 @@ fn posix_send_to(
     if !process.security.capabilities.contains(crate::security::Capabilities::NETWORK) {
         return Err(-EACCES);
     }
-    let socket = require_udp_socket(process, fd)?;
+    let entry = process.fds.lock().get(fd).ok_or(-EBADF)?;
     let length = requested.min(MAX_UDP_PAYLOAD);
     if requested > MAX_UDP_PAYLOAD { return Err(-EMSGSIZE); }
     let mut bytes = [0u8; MAX_UDP_PAYLOAD];
     let payload = input(pointer, length, &mut bytes)?;
-    let sent = if destination_pointer == 0 {
-        crate::network::udp_send_connected(socket, payload).map_err(map_udp_error)?
-    } else {
-        let destination = read_ipv4_sockaddr(destination_pointer, destination_length)?;
-        crate::network::udp_send_to(socket, payload, crate::network::UdpPeer {
-            address: destination.address,
-            port: destination.port,
-        }).map_err(map_udp_error)?
+    let sent = match entry.kind {
+        FdKind::SocketUdp if destination_pointer == 0 => {
+            crate::network::udp_send_connected(entry.handle, payload).map_err(map_udp_error)?
+        }
+        FdKind::SocketUdp => {
+            let destination = read_ipv4_sockaddr(destination_pointer, destination_length)?;
+            crate::network::udp_send_to(entry.handle, payload, crate::network::UdpPeer {
+                address: destination.address,
+                port: destination.port,
+            }).map_err(map_udp_error)?
+        }
+        FdKind::SocketTcp if destination_pointer == 0 => return posix_tcp_write(process, fd, payload),
+        FdKind::SocketTcp => return Err(-EISCONN),
+        _ => return Err(-ENOTSOCK),
     };
     Ok(sent as isize)
 }
@@ -783,8 +863,19 @@ fn posix_receive_from(
     if !process.security.capabilities.contains(crate::security::Capabilities::NETWORK) {
         return Err(-EACCES);
     }
-    let socket = require_udp_socket(process, fd)?;
-    let nonblocking = process.fds.lock().get(fd).ok_or(-EBADF)?.status_flags & O_NONBLOCK != 0;
+    let entry = process.fds.lock().get(fd).ok_or(-EBADF)?;
+    if entry.kind == FdKind::SocketTcp {
+        let count = posix_tcp_receive(process, fd, pointer, requested)?;
+        if source_pointer != 0 || source_length_pointer != 0 {
+            let peer = crate::network::tcp_peer(entry.handle).map_err(map_tcp_error)?;
+            write_ipv4_sockaddr(source_pointer, source_length_pointer,
+                Ipv4SocketAddress { address: peer.address, port: peer.port })?;
+        }
+        return Ok(count);
+    }
+    if entry.kind != FdKind::SocketUdp { return Err(-ENOTSOCK); }
+    let socket = entry.handle;
+    let nonblocking = entry.status_flags & O_NONBLOCK != 0;
     if requested == 0 { return Ok(0); }
     let length = requested.min(MAX_UDP_PAYLOAD);
     if !vmm::is_user_range(pointer, length, true) { return Err(-EFAULT); }
@@ -809,6 +900,96 @@ fn posix_receive_from(
         write_ipv4_sockaddr(source_pointer, source_length_pointer, peer)?;
     }
     Ok(count as isize)
+}
+
+#[cfg(feature = "network-stack")]
+fn posix_tcp_write(process: &Arc<Process>, fd: usize, bytes: &[u8]) -> Result<isize, isize> {
+    let entry = process.fds.lock().get(fd).ok_or(-EBADF)?;
+    if entry.kind != FdKind::SocketTcp { return Err(-ENOTSOCK); }
+    if bytes.is_empty() { return Ok(0); }
+    let nonblocking = entry.status_flags & O_NONBLOCK != 0;
+    let result = syscall::wait_until(crate::network::tcp_wait_queue(), if nonblocking { 0 } else { u64::MAX }, || {
+        match crate::network::tcp_send(entry.handle, bytes) {
+            Ok(Some(count)) => Some(count as isize),
+            Ok(None) => None,
+            Err(crate::network::TcpError::WouldBlock) => None,
+            Err(error) => Some(map_tcp_error(error)),
+        }
+    });
+    if result == -6 { return Err(-EAGAIN); }
+    if result < 0 { return Err(result); }
+    Ok(result)
+}
+
+#[cfg(feature = "network-stack")]
+fn posix_tcp_receive(process: &Arc<Process>, fd: usize, pointer: u64, requested: usize) -> Result<isize, isize> {
+    let entry = process.fds.lock().get(fd).ok_or(-EBADF)?;
+    if entry.kind != FdKind::SocketTcp { return Err(-ENOTSOCK); }
+    if requested == 0 { return Ok(0); }
+    let length = requested.min(MAX_COPY);
+    if !vmm::is_user_range(pointer, length, true) { return Err(-EFAULT); }
+    let nonblocking = entry.status_flags & O_NONBLOCK != 0;
+    let mut buffer = [0u8; MAX_COPY];
+    let result = syscall::wait_until(crate::network::tcp_wait_queue(), if nonblocking { 0 } else { u64::MAX }, || {
+        match crate::network::tcp_receive(entry.handle, &mut buffer[..length]) {
+            Ok(Some(count)) => Some(count as isize),
+            Ok(None) => None,
+            Err(error) => Some(map_tcp_error(error)),
+        }
+    });
+    if result == -6 { return Err(-EAGAIN); }
+    if result < 0 { return Err(result); }
+    let count = result as usize;
+    output(pointer, &buffer[..count])?;
+    Ok(result)
+}
+
+#[cfg(feature = "network-stack")]
+fn posix_listen(process: &Arc<Process>, fd: usize, backlog: usize) -> Result<isize, isize> {
+    if !process.security.capabilities.contains(crate::security::Capabilities::NETWORK) { return Err(-EACCES); }
+    if backlog == 0 { return Err(-EINVAL); }
+    let entry = process.fds.lock().get(fd).ok_or(-EBADF)?;
+    if entry.kind != FdKind::SocketTcp { return Err(-ENOTSOCK); }
+    crate::network::tcp_listen(entry.handle).map(|_| 0).map_err(map_tcp_error)
+}
+
+#[cfg(feature = "network-stack")]
+fn posix_accept(
+    process: &Arc<Process>, fd: usize, address_pointer: u64, address_length_pointer: u64,
+) -> Result<isize, isize> {
+    if !process.security.capabilities.contains(crate::security::Capabilities::NETWORK) { return Err(-EACCES); }
+    if (address_pointer == 0) != (address_length_pointer == 0) { return Err(-EFAULT); }
+    let listener = process.fds.lock().get(fd).ok_or(-EBADF)?;
+    if listener.kind != FdKind::SocketTcp { return Err(-ENOTSOCK); }
+    let nonblocking = listener.status_flags & O_NONBLOCK != 0;
+    let accepted = syscall::wait_until(crate::network::tcp_wait_queue(), if nonblocking { 0 } else { u64::MAX }, || {
+        match crate::network::tcp_accept(listener.handle) {
+            Ok(id) => Some(id as isize),
+            Err(crate::network::TcpError::WouldBlock) => None,
+            Err(error) => Some(map_tcp_error(error)),
+        }
+    });
+    if accepted == -6 { return Err(-EAGAIN); }
+    if accepted < 0 { return Err(accepted); }
+    let accepted_id = accepted as u32;
+    let result = allocate_descriptor(process, FdEntry {
+        handle: accepted_id, kind: FdKind::SocketTcp,
+        status_flags: 0, descriptor_flags: 0,
+    }, 0);
+    let new_fd = match result {
+        Ok(value) => value,
+        Err(error) => { crate::network::tcp_release(accepted_id); return Err(error); }
+    };
+    if address_pointer != 0 {
+        let peer = crate::network::tcp_peer(accepted_id).map_err(map_tcp_error)?;
+        if let Err(error) = write_ipv4_sockaddr(address_pointer, address_length_pointer,
+            Ipv4SocketAddress { address: peer.address, port: peer.port }) {
+            let old = process.fds.lock().close(new_fd).unwrap();
+            close_entry(process, old);
+            return Err(error);
+        }
+    }
+    Ok(new_fd as isize)
 }
 
 #[cfg(feature = "network-stack")]
@@ -855,10 +1036,155 @@ fn posix_fstat(process: &Arc<Process>, fd: usize, pointer: u64) -> Result<isize,
             size: 0, block_size: 4096, blocks: 0, access_seconds: 0, access_nanoseconds: 0,
             modify_seconds: 0, modify_nanoseconds: 0, change_seconds: 0, change_nanoseconds: 0,
         },
+        FdKind::SocketTcp => UserStat {
+            device: 1, inode: entry.handle as u64, links: 1, mode: 0o140000 | 0o600,
+            uid: process.uid, gid: process.gid, reserved: 0, special_device: 0,
+            size: 0, block_size: 4096, blocks: 0, access_seconds: 0, access_nanoseconds: 0,
+            modify_seconds: 0, modify_nanoseconds: 0, change_seconds: 0, change_nanoseconds: 0,
+        },
         FdKind::Closed => return Err(-EBADF),
     };
     status.reserved = 0;
     syscall::copy_user_stat(pointer, status)
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct UserFdSet { bits: [u64; 2] }
+
+impl UserFdSet {
+    const fn empty() -> Self { Self { bits: [0; 2] } }
+    fn contains(&self, fd: usize) -> bool { self.bits[fd / 64] & (1u64 << (fd % 64)) != 0 }
+    fn insert(&mut self, fd: usize) { self.bits[fd / 64] |= 1u64 << (fd % 64); }
+}
+
+fn fd_read_ready(process: &Arc<Process>, fd: usize, entry: FdEntry) -> Result<bool, isize> {
+    Ok(match entry.kind {
+        FdKind::ConsoleRead => crate::drivers::tty::is_readable(process.pid),
+        FdKind::File => entry.status_flags & O_ACCMODE != O_WRONLY,
+        FdKind::PipeRead => process.handles.lock()
+            .get(unsafe { Handle::<crate::ipc::pipe::PipeReader>::from_raw(entry.handle) }, AccessRights::READ)
+            .map_err(|_| -EBADF)?.is_readable(),
+        #[cfg(feature = "network-stack")]
+        FdKind::SocketUdp => crate::network::udp_readable(entry.handle),
+        #[cfg(feature = "network-stack")]
+        FdKind::SocketTcp => crate::network::tcp_readable(entry.handle),
+        #[cfg(not(feature = "network-stack"))]
+        FdKind::SocketUdp | FdKind::SocketTcp => return Err(-ENOSYS),
+        FdKind::ConsoleWrite | FdKind::PipeWrite => false,
+        FdKind::Closed => { let _ = fd; return Err(-EBADF); }
+    })
+}
+
+fn fd_write_ready(process: &Arc<Process>, fd: usize, entry: FdEntry) -> Result<bool, isize> {
+    Ok(match entry.kind {
+        FdKind::ConsoleWrite => true,
+        FdKind::File => entry.status_flags & O_ACCMODE != O_RDONLY,
+        FdKind::PipeWrite => process.handles.lock()
+            .get(unsafe { Handle::<crate::ipc::pipe::PipeWriter>::from_raw(entry.handle) }, AccessRights::WRITE)
+            .map_err(|_| -EBADF)?.is_writable(),
+        #[cfg(feature = "network-stack")]
+        FdKind::SocketUdp => crate::network::udp_writable(entry.handle),
+        #[cfg(feature = "network-stack")]
+        FdKind::SocketTcp => crate::network::tcp_writable(entry.handle),
+        #[cfg(not(feature = "network-stack"))]
+        FdKind::SocketUdp | FdKind::SocketTcp => return Err(-ENOSYS),
+        FdKind::ConsoleRead | FdKind::PipeRead => false,
+        FdKind::Closed => { let _ = fd; return Err(-EBADF); }
+    })
+}
+
+fn posix_select(frame: &crate::arch::x86_64::idt::TrapFrame) -> Result<isize, isize> {
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct TimeVal { seconds: i64, microseconds: i64 }
+
+    let process = current()?;
+    let nfds = frame.rdi as usize;
+    if nfds > FD_LIMIT { return Err(-EINVAL); }
+    let mut requested_read = UserFdSet::empty();
+    let mut requested_write = UserFdSet::empty();
+    let mut requested_except = UserFdSet::empty();
+    if frame.rsi != 0 {
+        let bytes = unsafe { core::slice::from_raw_parts_mut((&mut requested_read as *mut UserFdSet).cast::<u8>(), 16) };
+        vmm::copy_from_user(bytes, frame.rsi).map_err(|_| -EFAULT)?;
+    }
+    if frame.rdx != 0 {
+        let bytes = unsafe { core::slice::from_raw_parts_mut((&mut requested_write as *mut UserFdSet).cast::<u8>(), 16) };
+        vmm::copy_from_user(bytes, frame.rdx).map_err(|_| -EFAULT)?;
+    }
+    if frame.r10 != 0 {
+        let bytes = unsafe { core::slice::from_raw_parts_mut((&mut requested_except as *mut UserFdSet).cast::<u8>(), 16) };
+        vmm::copy_from_user(bytes, frame.r10).map_err(|_| -EFAULT)?;
+    }
+    let timeout = if frame.r8 == 0 {
+        None
+    } else {
+        let mut value = TimeVal { seconds: 0, microseconds: 0 };
+        let bytes = unsafe { core::slice::from_raw_parts_mut((&mut value as *mut TimeVal).cast::<u8>(), 16) };
+        vmm::copy_from_user(bytes, frame.r8).map_err(|_| -EFAULT)?;
+        if value.seconds < 0 || value.microseconds < 0 || value.microseconds >= 1_000_000 {
+            return Err(-EINVAL);
+        }
+        let ticks = (value.seconds as u128)
+            .checked_mul(100)
+            .and_then(|whole| whole.checked_add((value.microseconds as u128 + 9_999) / 10_000))
+            .ok_or(-EOVERFLOW)?;
+        Some((ticks.min(u64::MAX as u128) as u64, value))
+    };
+    let start = crate::task::scheduler::tick_count();
+
+    loop {
+        let mut ready_read = UserFdSet::empty();
+        let mut ready_write = UserFdSet::empty();
+        let ready_except = UserFdSet::empty();
+        let mut count = 0usize;
+        for fd in 0..nfds {
+            let wants_read = requested_read.contains(fd);
+            let wants_write = requested_write.contains(fd);
+            let wants_except = requested_except.contains(fd);
+            if !(wants_read || wants_write || wants_except) { continue; }
+            let entry = process.fds.lock().get(fd).ok_or(-EBADF)?;
+            if wants_read && fd_read_ready(&process, fd, entry)? {
+                ready_read.insert(fd);
+                count += 1;
+            }
+            if wants_write && fd_write_ready(&process, fd, entry)? {
+                ready_write.insert(fd);
+                count += 1;
+            }
+        }
+
+        let elapsed = crate::task::scheduler::tick_count().wrapping_sub(start);
+        let expired = timeout.is_some_and(|(ticks, _)| ticks == 0 || elapsed >= ticks);
+        if count != 0 || expired {
+            for (pointer, value) in [
+                (frame.rsi, ready_read),
+                (frame.rdx, ready_write),
+                (frame.r10, ready_except),
+            ] {
+                if pointer != 0 {
+                    let bytes = unsafe { core::slice::from_raw_parts((&value as *const UserFdSet).cast::<u8>(), 16) };
+                    vmm::copy_to_user(pointer, bytes).map_err(|_| -EFAULT)?;
+                }
+            }
+            if let Some((ticks, original)) = timeout {
+                let remaining = ticks.saturating_sub(elapsed);
+                let value = TimeVal {
+                    seconds: (remaining / 100) as i64,
+                    microseconds: ((remaining % 100) * 10_000) as i64,
+                };
+                let bytes = unsafe { core::slice::from_raw_parts((&value as *const TimeVal).cast::<u8>(), 16) };
+                if vmm::copy_to_user(frame.r8, bytes).is_err() { return Err(-EFAULT); }
+                let _ = original;
+            }
+            return Ok(count as isize);
+        }
+
+        let tick_wait = crate::task::wait::WaitQueue::new();
+        let result = syscall::wait_until(&tick_wait, 1, || None);
+        if result < 0 && result != -7 { return Err(-EINTR); }
+    }
 }
 
 pub fn dispatch(number: u64, frame: &crate::arch::x86_64::idt::TrapFrame) -> Result<isize, isize> {
@@ -947,6 +1273,13 @@ pub fn dispatch(number: u64, frame: &crate::arch::x86_64::idt::TrapFrame) -> Res
         74 => posix_network_config(&process, frame.rdi, frame.rsi as usize),
         #[cfg(not(feature = "network-stack"))]
         74 => Err(-ENOSYS),
+        #[cfg(feature = "network-stack")]
+        79 => posix_listen(&process, frame.rdi as usize, frame.rsi as usize),
+        #[cfg(feature = "network-stack")]
+        80 => posix_accept(&process, frame.rdi as usize, frame.rsi, frame.rdx),
+        #[cfg(not(feature = "network-stack"))]
+        79..=80 => Err(-ENOSYS),
+        81 => posix_select(frame),
         _ => Err(-ENOSYS),
     }
 }

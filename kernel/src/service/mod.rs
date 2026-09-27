@@ -44,6 +44,7 @@ pub fn init() {
         "console",
         "configuration",
         "device-manager",
+        "display-manager",
         "filesystem",
         "ipc",
         "object-manager",

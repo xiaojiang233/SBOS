@@ -40,13 +40,15 @@ future work.
 
 ## Not implemented yet
 
-- TCP socket syscalls (`listen`, `accept`) and stream fd semantics.
+- TCP active `connect` is implemented but still needs an outbound runtime test;
+  backlog is limited to one and stream options/shutdown semantics are sparse.
 - Legacy `gethostbyname`/hostent interfaces and `getnameinfo` reverse lookup.
 - Route manager, IPv6, loopback, and multiple interfaces.
 - Interrupt-driven NIC service, non-QEMU hardware coverage, and PCI ECAM/ACPI
   enumeration.
-- GNU network utilities. DNS resolution and UDP work from Ring 3; TCP streams
-  are still needed for common clients such as wget/curl.
+- GNU network utilities. UDP and the TCP listener/stream path are available,
+  but authentication, broader TCP semantics, and common client compatibility
+  remain incomplete.
 
 The protocol engine is upstream no_std smoltcp 0.14.0 (0BSD). It provides
 protocol state machines; SBOS retains ownership of the hardware driver, syscall

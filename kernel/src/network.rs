@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::socket::udp::{PacketBuffer, PacketMetadata, Socket as UdpSocket};
+use smoltcp::socket::tcp::{Socket as TcpSocket, SocketBuffer as TcpSocketBuffer, State as TcpState};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, IpEndpoint, IpListenEndpoint, Ipv4Address};
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -21,6 +22,7 @@ const UDP_BUFFER_BYTES: usize = 4096;
 const UDP_BUFFER_PACKETS: usize = 8;
 const EPHEMERAL_FIRST: u16 = 49152;
 const EPHEMERAL_LAST: u16 = 65535;
+const TCP_BUFFER_BYTES: usize = 16 * 1024;
 
 struct E1000Device;
 struct ReceivedFrame {
@@ -87,6 +89,7 @@ struct NetworkState {
     sockets: SocketSet<'static>,
     dhcp_socket: SocketHandle,
     udp_sockets: Vec<UdpEndpoint>,
+    tcp_sockets: Vec<TcpEndpoint>,
     next_ephemeral_port: u16,
     ipv4: [u8; 4],
     gateway: [u8; 4],
@@ -100,6 +103,15 @@ struct UdpEndpoint {
     socket: SocketHandle,
     references: u32,
     connected: Option<IpEndpoint>,
+}
+
+struct TcpEndpoint {
+    id: u32,
+    socket: SocketHandle,
+    references: u32,
+    bound: Option<([u8; 4], u16)>,
+    listening: bool,
+    closing: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,6 +128,21 @@ pub enum UdpError {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TcpError {
+    NotReady,
+    NotFound,
+    NoSpace,
+    AddressInUse,
+    AddressNotAvailable,
+    NotConnected,
+    ConnectionRefused,
+    MessageTooLarge,
+    WouldBlock,
+    Closed,
+    Invalid,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UdpPeer {
     pub address: [u8; 4],
     pub port: u16,
@@ -124,7 +151,9 @@ pub struct UdpPeer {
 static STATE: SpinLock<Option<NetworkState>> = SpinLock::new(None);
 static TX_ERRORS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 static NEXT_UDP_ID: AtomicU32 = AtomicU32::new(1);
+static NEXT_TCP_ID: AtomicU32 = AtomicU32::new(0x8000_0000);
 static UDP_WAITERS: crate::task::wait::WaitQueue = crate::task::wait::WaitQueue::new();
+static TCP_WAITERS: crate::task::wait::WaitQueue = crate::task::wait::WaitQueue::new();
 
 /// Configure QEMU's user-mode network defaults and start DHCP. The static
 /// address remains available while a lease is being acquired.
@@ -151,6 +180,7 @@ pub fn init(mac: [u8; 6]) -> Result<(), &'static str> {
         sockets,
         dhcp_socket,
         udp_sockets: Vec::new(),
+        tcp_sockets: Vec::new(),
         next_ephemeral_port: EPHEMERAL_FIRST,
         ipv4: [10, 0, 2, 15],
         gateway: [10, 0, 2, 2],
@@ -216,15 +246,35 @@ pub fn poll() {
     let udp_ready = state.udp_sockets.iter().any(|endpoint| {
         state.sockets.get::<UdpSocket>(endpoint.socket).can_recv()
     });
+    let tcp_ready = state.tcp_sockets.iter().any(|endpoint| {
+        let socket = state.sockets.get::<TcpSocket>(endpoint.socket);
+        endpoint.closing || socket.can_recv() || socket.state() == TcpState::Established
+            || socket.state() == TcpState::CloseWait || socket.state() == TcpState::Closed
+    });
+    let mut index = 0;
+    while index < state.tcp_sockets.len() {
+        let endpoint = &state.tcp_sockets[index];
+        if endpoint.closing && state.sockets.get::<TcpSocket>(endpoint.socket).state() == TcpState::Closed {
+            let endpoint = state.tcp_sockets.remove(index);
+            let _ = state.sockets.remove(endpoint.socket);
+        } else {
+            index += 1;
+        }
+    }
     drop(guard);
     if udp_ready {
         UDP_WAITERS.wake_all();
+    }
+    if tcp_ready {
+        TCP_WAITERS.wake_all();
     }
 }
 
 pub fn udp_wait_queue() -> &'static crate::task::wait::WaitQueue {
     &UDP_WAITERS
 }
+
+pub fn tcp_wait_queue() -> &'static crate::task::wait::WaitQueue { &TCP_WAITERS }
 
 pub fn udp_open() -> Result<u32, UdpError> {
     let mut guard = STATE.lock();
@@ -390,6 +440,256 @@ pub fn udp_receive(id: u32, buffer: &mut [u8]) -> Result<Option<(usize, UdpPeer)
         let IpAddress::Ipv4(address) = endpoint.addr;
         return Ok(Some((length, UdpPeer { address: address.octets(), port: endpoint.port })));
     }
+    Ok(None)
+}
+
+pub fn udp_readable(id: u32) -> bool {
+    let guard = STATE.lock();
+    let Some(state) = guard.as_ref() else { return false };
+    let Ok(index) = udp_index(state, id) else { return false };
+    state.sockets.get::<UdpSocket>(state.udp_sockets[index].socket).can_recv()
+}
+
+pub fn udp_writable(id: u32) -> bool {
+    let guard = STATE.lock();
+    let Some(state) = guard.as_ref() else { return false };
+    let Ok(index) = udp_index(state, id) else { return false };
+    state.sockets.get::<UdpSocket>(state.udp_sockets[index].socket).can_send()
+}
+
+fn next_tcp_id() -> u32 {
+    let id = NEXT_TCP_ID.fetch_add(1, Ordering::Relaxed);
+    if id < 0x8000_0000 { NEXT_TCP_ID.store(0x8000_0001, Ordering::Relaxed); 0x8000_0000 } else { id }
+}
+
+fn new_tcp_socket(state: &mut NetworkState) -> SocketHandle {
+    state.sockets.add(TcpSocket::new(
+        TcpSocketBuffer::new(vec![0; TCP_BUFFER_BYTES]),
+        TcpSocketBuffer::new(vec![0; TCP_BUFFER_BYTES]),
+    ))
+}
+
+pub fn tcp_open() -> Result<u32, TcpError> {
+    let mut guard = STATE.lock();
+    let state = guard.as_mut().ok_or(TcpError::NotReady)?;
+    if state.tcp_sockets.len() >= MAX_UDP_SOCKETS { return Err(TcpError::NoSpace); }
+    let socket = new_tcp_socket(state);
+    let id = next_tcp_id();
+    state.tcp_sockets.push(TcpEndpoint {
+        id,
+        socket,
+        references: 1,
+        bound: None,
+        listening: false,
+        closing: false,
+    });
+    Ok(id)
+}
+
+fn tcp_index(state: &NetworkState, id: u32) -> Result<usize, TcpError> {
+    state.tcp_sockets.iter().position(|item| item.id == id && !item.closing).ok_or(TcpError::NotFound)
+}
+
+pub fn tcp_retain(id: u32) -> Result<(), TcpError> {
+    let mut guard = STATE.lock();
+    let state = guard.as_mut().ok_or(TcpError::NotReady)?;
+    let index = tcp_index(state, id)?;
+    state.tcp_sockets[index].references = state.tcp_sockets[index]
+        .references.checked_add(1).ok_or(TcpError::NoSpace)?;
+    Ok(())
+}
+
+pub fn tcp_release(id: u32) {
+    let mut guard = STATE.lock();
+    let Some(state) = guard.as_mut() else { return };
+    let Ok(index) = tcp_index(state, id) else { return };
+    if state.tcp_sockets[index].references > 1 {
+        state.tcp_sockets[index].references -= 1;
+    } else {
+        state.tcp_sockets[index].closing = true;
+        state.sockets.get_mut::<TcpSocket>(state.tcp_sockets[index].socket).close();
+    }
+}
+
+pub fn tcp_bind(id: u32, address: [u8; 4], port: u16) -> Result<(), TcpError> {
+    if port == 0 { return Err(TcpError::AddressNotAvailable); }
+    let mut guard = STATE.lock();
+    let state = guard.as_mut().ok_or(TcpError::NotReady)?;
+    let index = tcp_index(state, id)?;
+    if address != [0; 4] && address != state.ipv4 { return Err(TcpError::AddressNotAvailable); }
+    if state.tcp_sockets.iter().any(|item| {
+        item.id != id && !item.closing && item.bound.is_some_and(|(_, local_port)| local_port == port)
+    }) {
+        return Err(TcpError::AddressInUse);
+    }
+    if state.sockets.get::<TcpSocket>(state.tcp_sockets[index].socket).is_open() {
+        return Err(TcpError::AddressInUse);
+    }
+    state.tcp_sockets[index].bound = Some((address, port));
+    Ok(())
+}
+
+pub fn tcp_listen(id: u32) -> Result<(), TcpError> {
+    let mut guard = STATE.lock();
+    let state = guard.as_mut().ok_or(TcpError::NotReady)?;
+    let index = tcp_index(state, id)?;
+    let (address, port) = state.tcp_sockets[index].bound.ok_or(TcpError::AddressNotAvailable)?;
+    let endpoint = IpListenEndpoint {
+        addr: if address == [0; 4] { None } else {
+            Some(IpAddress::v4(address[0], address[1], address[2], address[3]))
+        },
+        port,
+    };
+    state.sockets.get_mut::<TcpSocket>(state.tcp_sockets[index].socket)
+        .listen(endpoint).map_err(|_| TcpError::AddressInUse)?;
+    state.tcp_sockets[index].listening = true;
+    Ok(())
+}
+
+pub fn tcp_connect(id: u32, peer: UdpPeer) -> Result<(), TcpError> {
+    if peer.address == [0; 4] || peer.port == 0 { return Err(TcpError::AddressNotAvailable); }
+    let mut guard = STATE.lock();
+    let state = guard.as_mut().ok_or(TcpError::NotReady)?;
+    let index = tcp_index(state, id)?;
+    if state.sockets.get::<TcpSocket>(state.tcp_sockets[index].socket).is_open() {
+        return Err(TcpError::Invalid);
+    }
+    let (local_address, local_port) = if let Some(bound) = state.tcp_sockets[index].bound {
+        let port = bound.1;
+        if state.tcp_sockets.iter().any(|item| {
+            item.id != id && !item.closing && item.bound.is_some_and(|(_, p)| p == port)
+        }) { return Err(TcpError::AddressInUse); }
+        (bound.0, port)
+    } else {
+        let count = (EPHEMERAL_LAST - EPHEMERAL_FIRST + 1) as usize;
+        let mut selected = None;
+        for _ in 0..count {
+            let port = state.next_ephemeral_port;
+            state.next_ephemeral_port = if port == EPHEMERAL_LAST { EPHEMERAL_FIRST } else { port + 1 };
+            if state.tcp_sockets.iter().any(|item| {
+                item.bound.is_some_and(|(_, p)| p == port)
+            }) { continue; }
+            selected = Some(port);
+            break;
+        }
+        ([0; 4], selected.ok_or(TcpError::NoSpace)?)
+    };
+    let remote = IpEndpoint::new(
+        IpAddress::v4(peer.address[0], peer.address[1], peer.address[2], peer.address[3]),
+        peer.port,
+    );
+    let local = IpListenEndpoint {
+        addr: if local_address == [0; 4] { None } else {
+            Some(IpAddress::v4(local_address[0], local_address[1], local_address[2], local_address[3]))
+        },
+        port: local_port,
+    };
+    let NetworkState { interface, sockets, tcp_sockets, .. } = state;
+    let endpoint = tcp_sockets.iter_mut().find(|item| item.id == id).ok_or(TcpError::NotFound)?;
+    sockets.get_mut::<TcpSocket>(endpoint.socket)
+        .connect(interface.context(), remote, local)
+        .map_err(|_| TcpError::AddressNotAvailable)?;
+    endpoint.bound = Some((local_address, local_port));
+    Ok(())
+}
+
+pub fn tcp_state(id: u32) -> Result<TcpState, TcpError> {
+    let guard = STATE.lock();
+    let state = guard.as_ref().ok_or(TcpError::NotReady)?;
+    let index = tcp_index(state, id)?;
+    Ok(state.sockets.get::<TcpSocket>(state.tcp_sockets[index].socket).state())
+}
+
+pub fn tcp_peer(id: u32) -> Result<UdpPeer, TcpError> {
+    let guard = STATE.lock();
+    let state = guard.as_ref().ok_or(TcpError::NotReady)?;
+    let index = tcp_index(state, id)?;
+    let remote = state.sockets.get::<TcpSocket>(state.tcp_sockets[index].socket)
+        .remote_endpoint().ok_or(TcpError::NotConnected)?;
+    let IpAddress::Ipv4(address) = remote.addr;
+    Ok(UdpPeer { address: address.octets(), port: remote.port })
+}
+
+pub fn tcp_readable(id: u32) -> bool {
+    let guard = STATE.lock();
+    let Some(state) = guard.as_ref() else { return false };
+    let Ok(index) = tcp_index(state, id) else { return false };
+    let socket = state.sockets.get::<TcpSocket>(state.tcp_sockets[index].socket);
+    socket.can_recv() || !socket.may_recv()
+}
+
+pub fn tcp_writable(id: u32) -> bool {
+    let guard = STATE.lock();
+    let Some(state) = guard.as_ref() else { return false };
+    let Ok(index) = tcp_index(state, id) else { return false };
+    let socket = state.sockets.get::<TcpSocket>(state.tcp_sockets[index].socket);
+    socket.can_send() && socket.may_send()
+}
+
+pub fn tcp_accept(id: u32) -> Result<u32, TcpError> {
+    let mut guard = STATE.lock();
+    let state = guard.as_mut().ok_or(TcpError::NotReady)?;
+    let index = tcp_index(state, id)?;
+    let listener = &state.tcp_sockets[index];
+    if !listener.listening { return Err(TcpError::Invalid); }
+    let connected_socket = listener.socket;
+    let socket = state.sockets.get::<TcpSocket>(connected_socket);
+    if socket.state() != TcpState::Established { return Err(TcpError::WouldBlock); }
+    let peer = socket.remote_endpoint().ok_or(TcpError::Invalid)?;
+    let local = socket.local_endpoint().ok_or(TcpError::Invalid)?;
+    let bound = listener.bound.ok_or(TcpError::Invalid)?;
+
+    let replacement = new_tcp_socket(state);
+    let listen_addr = IpListenEndpoint {
+        addr: if bound.0 == [0; 4] { None } else {
+            Some(IpAddress::v4(bound.0[0], bound.0[1], bound.0[2], bound.0[3]))
+        },
+        port: bound.1,
+    };
+    state.sockets.get_mut::<TcpSocket>(replacement)
+        .listen(listen_addr).map_err(|_| TcpError::AddressInUse)?;
+    state.tcp_sockets[index].socket = replacement;
+
+    let IpAddress::Ipv4(peer_address) = peer.addr;
+    let IpAddress::Ipv4(local_address) = local.addr;
+    let mut id = next_tcp_id();
+    while state.tcp_sockets.iter().any(|item| item.id == id) { id = next_tcp_id(); }
+    state.tcp_sockets.push(TcpEndpoint {
+        id,
+        socket: connected_socket,
+        references: 1,
+        bound: Some((local_address.octets(), local.port)),
+        listening: false,
+        closing: false,
+    });
+    let _ = peer_address; // peer is available through the connected socket if/when getpeername is added.
+    Ok(id)
+}
+
+pub fn tcp_send(id: u32, bytes: &[u8]) -> Result<Option<usize>, TcpError> {
+    if bytes.len() > TCP_BUFFER_BYTES { return Err(TcpError::MessageTooLarge); }
+    let mut guard = STATE.lock();
+    let state = guard.as_mut().ok_or(TcpError::NotReady)?;
+    let index = tcp_index(state, id)?;
+    let socket = state.sockets.get_mut::<TcpSocket>(state.tcp_sockets[index].socket);
+    if !socket.may_send() { return Err(TcpError::NotConnected); }
+    match socket.send_slice(bytes) {
+        Ok(0) => Ok(None),
+        Ok(count) => Ok(Some(count)),
+        Err(smoltcp::socket::tcp::SendError::InvalidState) => Err(TcpError::NotConnected),
+    }
+}
+
+/// Returns `Some(0)` for orderly EOF, `None` when no data is currently ready.
+pub fn tcp_receive(id: u32, buffer: &mut [u8]) -> Result<Option<usize>, TcpError> {
+    let mut guard = STATE.lock();
+    let state = guard.as_mut().ok_or(TcpError::NotReady)?;
+    let index = tcp_index(state, id)?;
+    let socket = state.sockets.get_mut::<TcpSocket>(state.tcp_sockets[index].socket);
+    if socket.can_recv() {
+        return socket.recv_slice(buffer).map(Some).map_err(|_| TcpError::Invalid);
+    }
+    if !socket.may_recv() || socket.state() == TcpState::CloseWait { return Ok(Some(0)); }
     Ok(None)
 }
 

@@ -186,6 +186,19 @@ pub fn register_network_device(vendor: &str, model: &str, driver: &str) {
     )));
 }
 
+pub fn register_input_device(vendor: &str, model: &str, driver: &str) {
+    let mut devices = DEVICES.lock();
+    let id = devices.iter().map(|device| device.id.0).max().unwrap_or(0) + 1;
+    devices.push(Arc::new(DeviceObject::new(
+        id,
+        DeviceClass::Input,
+        vendor,
+        model,
+        driver,
+        DeviceCapabilities::INPUT,
+    )));
+}
+
 pub fn block_devices() -> Vec<Arc<dyn BlockDevice>> {
     BLOCK_DEVICES.lock().clone()
 }

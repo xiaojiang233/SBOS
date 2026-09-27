@@ -66,12 +66,13 @@ epoch advances with PIT ticks. The new POSIX syscall backs
 `gettimeofday()`; realtime is explicitly unavailable (`ENODATA`) if no usable
 RTC is present.
 
-The Coreutils 9.12 profile currently includes `[`, `basename`, `cat`, `date`,
-`dirname`, `env`, `false`, `head`, `ls`, `printenv`, `printf`, `pwd`, `tail`,
-`tee`, `test`, `tr`, `true`, `wc`, and `yes`. Commands that need the missing
-incomplete TTY/volume queries, including `stty`, `df`, and `du`, are not
-included. The time implementation assumes the CMOS RTC is configured as UTC;
-regional timezone data and daylight-saving rules are not available.
+The Coreutils 9.12 profile includes `[`, `basename`, `cat`, `cut`, `date`,
+`dirname`, `env`, `false`, `head`, `ls`, `mkdir`, `printenv`, `printf`, `pwd`,
+`rm`, `rmdir`, `seq`, `sleep`, `tail`, `tee`, `test`, `tr`, `true`, `wc`, and
+`yes`. Commands with incomplete TTY/volume contracts, including `stty`, `df`,
+and `du`, are not included. The time implementation assumes the CMOS RTC is
+configured as UTC; regional timezone data and daylight-saving rules are not
+available.
 
 ## Current C runtime gaps
 

@@ -1,0 +1,3 @@
+xserver -noauth -once
+echo xserver-returned
+exit

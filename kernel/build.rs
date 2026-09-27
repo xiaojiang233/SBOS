@@ -12,6 +12,11 @@ const APPLICATIONS: &[(&str, &str)] = &[
     ("fault.elf", "build/userland/fault.elf"),
     ("channel-probe.elf", "build/userland/channel-probe.elf"),
     ("network-probe.elf", "build/userland/network-probe.elf"),
+    ("desktop-demo.elf", "build/userland/desktop-demo.elf"),
+    ("mouse-probe.elf", "build/userland/mouse-probe.elf"),
+    ("tcp-listen-probe.elf", "build/userland/tcp-listen-probe.elf"),
+    ("xserver.elf", "build/userland/xserver.elf"),
+    ("select-probe.elf", "build/userland/select-probe.elf"),
 ];
 
 fn main() {

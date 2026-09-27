@@ -12,7 +12,9 @@ impl Capabilities {
     /// enforce this bit yet; callers must not treat it as an authorization gate.
     pub const IDENTITY_ADMIN: Self = Self(1 << 6);
     pub const NETWORK: Self = Self(1 << 7);
-    pub const ALL_BOOTSTRAP: Self = Self(((1 << 6) - 1) | Self::NETWORK.0);
+    pub const DISPLAY: Self = Self(1 << 8);
+    pub const INPUT: Self = Self(1 << 9);
+    pub const ALL_BOOTSTRAP: Self = Self(((1 << 6) - 1) | Self::NETWORK.0 | Self::DISPLAY.0 | Self::INPUT.0);
     pub const ALL_PRIVILEGED: Self = Self(Self::ALL_BOOTSTRAP.0 | Self::IDENTITY_ADMIN.0);
     pub const fn contains(self, right: Self) -> bool {
         self.0 & right.0 == right.0

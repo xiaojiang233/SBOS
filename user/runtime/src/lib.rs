@@ -72,6 +72,12 @@ pub mod syscall {
     pub const DIRECTORY_REMOVE: u64 = 65;
     pub const FILE_SYNC: u64 = 66;
     pub const THREAD_SLEEP: u64 = 67;
+    pub const DISPLAY_INFO: u64 = 75;
+    pub const DISPLAY_FILL_RECT: u64 = 76;
+    pub const DISPLAY_BLIT_RECT: u64 = 77;
+    pub const MOUSE_READ_EVENT: u64 = 78;
+    pub const POSIX_LISTEN: u64 = 79;
+    pub const POSIX_ACCEPT: u64 = 80;
 }
 
 pub mod query {
@@ -90,6 +96,73 @@ pub struct ChannelObject;
 pub struct EventObject;
 pub struct ConfigTransactionObject;
 pub struct ServiceObject;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DisplayInfo {
+    pub width: u32,
+    pub height: u32,
+    pub pixel_format: u32,
+    pub reserved: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MouseEvent {
+    pub delta_x: i16,
+    pub delta_y: i16,
+    pub x: i32,
+    pub y: i32,
+    pub buttons: u8,
+    pub changed_buttons: u8,
+    pub reserved: [u8; 2],
+}
+
+pub fn mouse_read_event(event: &mut MouseEvent, nonblocking: bool) -> isize {
+    unsafe {
+        raw_syscall(
+            syscall::MOUSE_READ_EVENT,
+            event as *mut MouseEvent as u64,
+            nonblocking as u64,
+            0, 0, 0, 0,
+        )
+    }
+}
+
+pub fn display_info() -> Option<DisplayInfo> {
+    let mut info = DisplayInfo { width: 0, height: 0, pixel_format: 0, reserved: 0 };
+    let result = unsafe {
+        raw_syscall(
+            syscall::DISPLAY_INFO,
+            (&mut info as *mut DisplayInfo) as u64,
+            0, 0, 0, 0, 0,
+        )
+    };
+    if result == core::mem::size_of::<DisplayInfo>() as isize { Some(info) } else { None }
+}
+
+pub fn display_fill_rect(x: u32, y: u32, width: u32, height: u32, rgb: u32) -> bool {
+    unsafe {
+        raw_syscall(syscall::DISPLAY_FILL_RECT,
+                    x as u64, y as u64, width as u64, height as u64, rgb as u64, 0) == 0
+    }
+}
+
+pub fn display_blit_rect(x: u32, y: u32, width: u32, height: u32,
+                         pixels: &[u32], stride_pixels: u32) -> bool {
+    if stride_pixels < width ||
+       (stride_pixels as usize).checked_mul(height as usize) != Some(pixels.len()) {
+        return false;
+    }
+    let result = unsafe {
+        raw_syscall(
+            syscall::DISPLAY_BLIT_RECT, x as u64, y as u64,
+            width as u64, height as u64, pixels.as_ptr() as u64,
+            stride_pixels as u64,
+        )
+    };
+    result == pixels.len() as isize
+}
 
 #[repr(transparent)]
 #[derive(Eq, PartialEq, Debug)]

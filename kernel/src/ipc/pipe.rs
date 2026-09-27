@@ -73,6 +73,12 @@ impl PipeReader {
     }
 
     pub fn wait_queue(&self) -> &crate::task::wait::WaitQueue { &self.core.readable }
+
+    pub fn is_readable(&self) -> bool {
+        let state = self.core.state.lock();
+        state.length != 0 || self.core.writers.load(Ordering::Acquire) == 0
+    }
+
 }
 
 impl Drop for PipeReader {
@@ -107,6 +113,12 @@ impl PipeWriter {
     }
 
     pub fn wait_queue(&self) -> &crate::task::wait::WaitQueue { &self.core.writable }
+
+    pub fn is_writable(&self) -> bool {
+        self.core.readers.load(Ordering::Acquire) == 0
+            || self.core.state.lock().length < CAPACITY
+    }
+
 }
 
 impl Drop for PipeWriter {

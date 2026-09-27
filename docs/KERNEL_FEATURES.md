@@ -14,6 +14,7 @@ and the device/volume managers.
 | `network-stack` | smoltcp no_std protocol engine and SBOS E1000 adapter | optional smoltcp crate |
 | `driver-ata` | ATA PIO `BlockDevice` driver | none |
 | `driver-ps2` | PS/2 keyboard input | none |
+| `driver-ps2-mouse` | i8042 auxiliary-port mouse events polled from PIT | `driver-ps2` |
 | `driver-rtc` | CMOS RTC source for realtime clock | x86 CMOS ports |
 | `driver-framebuffer` | UEFI GOP framebuffer renderer | boot-provided GOP framebuffer |
 | `fs-sbfs` | Persistent SBFS implementation and VFS backend | a registered block device at runtime |

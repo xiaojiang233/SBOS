@@ -6,6 +6,7 @@ param(
     [int]$CharacterDelayMilliseconds = 20,
     [int]$LinePauseMilliseconds = 350,
     [string]$Disk = '',
+    [string]$HostForwardTcp = '',
     [switch]$InterruptLog
 )
 # Run the SBOS image in QEMU headless, type a session script at the serial
@@ -71,9 +72,22 @@ if (-not (Test-Path -LiteralPath $varsPath)) {
 
 $env:QEMU_DATA_DIR = Join-Path (Split-Path -Parent $qemuExe) 'share'
 
+$networkBackend = 'user,id=net0'
+if ($HostForwardTcp) {
+    if ($HostForwardTcp -notmatch '^(\d{1,5}):(\d{1,5})$') {
+        throw 'HostForwardTcp must be written as hostPort:guestPort.'
+    }
+    $hostPort = [int]$Matches[1]
+    $guestPort = [int]$Matches[2]
+    if ($hostPort -lt 1 -or $hostPort -gt 65535 -or $guestPort -lt 1 -or $guestPort -gt 65535) {
+        throw 'HostForwardTcp ports must be in the range 1..65535.'
+    }
+    $networkBackend += ",hostfwd=tcp:127.0.0.1:$hostPort-:$guestPort"
+}
+
 $arguments = @(
     '-machine', 'pc', '-cpu', 'qemu64', '-m', '512M',
-    '-netdev', 'user,id=net0',
+    '-netdev', $networkBackend,
     '-device', 'e1000,netdev=net0,mac=52:54:00:12:34:56',
     '-drive', "if=pflash,format=raw,unit=0,file=$ovmf,readonly=on",
     '-drive', "if=pflash,format=raw,unit=1,file=$varsPath",

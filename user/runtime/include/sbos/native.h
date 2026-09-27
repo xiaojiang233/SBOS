@@ -81,7 +81,14 @@ enum sbos_syscall {
     SBOS_POSIX_CONNECT = 71,
     SBOS_POSIX_SENDTO = 72,
     SBOS_POSIX_RECVFROM = 73,
-    SBOS_POSIX_NETWORK_CONFIG = 74
+    SBOS_POSIX_NETWORK_CONFIG = 74,
+    SBOS_DISPLAY_INFO = 75,
+    SBOS_DISPLAY_FILL_RECT = 76,
+    SBOS_DISPLAY_BLIT_RECT = 77,
+    SBOS_MOUSE_READ_EVENT = 78,
+    SBOS_POSIX_LISTEN = 79,
+    SBOS_POSIX_ACCEPT = 80,
+    SBOS_POSIX_SELECT = 81
 };
 
 static inline int64_t sbos_call6(uint64_t number, uint64_t a0, uint64_t a1,
@@ -121,6 +128,47 @@ static inline int64_t sbos_channel_receive_handles(sbos_handle_t channel,
 static inline int64_t sbos_config_watch(const char *prefix, size_t length) {
     return sbos_call6(SBOS_CONFIG_WATCH, (uint64_t)(uintptr_t)prefix, length,
                       0, 0, 0, 0);
+}
+
+struct sbos_display_info {
+    uint32_t width;
+    uint32_t height;
+    uint32_t pixel_format;
+    uint32_t reserved;
+};
+
+struct sbos_mouse_event {
+    int16_t delta_x;
+    int16_t delta_y;
+    int32_t x;
+    int32_t y;
+    uint8_t buttons;
+    uint8_t changed_buttons;
+    uint8_t reserved[2];
+};
+
+static inline int64_t sbos_mouse_read_event(struct sbos_mouse_event *event,
+                                            int nonblocking) {
+    return sbos_call6(SBOS_MOUSE_READ_EVENT, (uint64_t)(uintptr_t)event,
+                      nonblocking != 0, 0, 0, 0, 0);
+}
+
+static inline int64_t sbos_display_get_info(struct sbos_display_info *info) {
+    return sbos_call6(SBOS_DISPLAY_INFO, (uint64_t)(uintptr_t)info, 0, 0, 0, 0, 0);
+}
+
+static inline int64_t sbos_display_fill_rect(uint32_t x, uint32_t y,
+                                              uint32_t width, uint32_t height,
+                                              uint32_t rgb) {
+    return sbos_call6(SBOS_DISPLAY_FILL_RECT, x, y, width, height, rgb, 0);
+}
+
+static inline int64_t sbos_display_blit_rect(uint32_t x, uint32_t y,
+                                              uint32_t width, uint32_t height,
+                                              const uint32_t *pixels,
+                                              uint32_t stride_pixels) {
+    return sbos_call6(SBOS_DISPLAY_BLIT_RECT, x, y, width, height,
+                      (uint64_t)(uintptr_t)pixels, stride_pixels);
 }
 
 #endif

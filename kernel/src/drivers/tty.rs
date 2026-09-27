@@ -273,6 +273,11 @@ pub fn window_size() -> (u16, u16) {
     (terminal.rows, terminal.columns)
 }
 
+pub fn is_readable(process_id: u64) -> bool {
+    if !is_foreground(process_id) { return false; }
+    TERMINAL.lock().has_ready()
+}
+
 pub fn read(process_id: u64, output: &mut [u8]) -> usize {
     if output.is_empty() {
         return 0;

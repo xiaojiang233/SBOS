@@ -1,0 +1,3 @@
+select-probe
+echo select-smoke-passed
+exit

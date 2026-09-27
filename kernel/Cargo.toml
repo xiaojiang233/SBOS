@@ -12,6 +12,7 @@ qemu = [
     "driver-e1000",
     "driver-framebuffer",
     "driver-ps2",
+    "driver-ps2-mouse",
     "driver-rtc",
     "fs-sbfs",
     "fs-tmpfs",
@@ -21,6 +22,7 @@ driver-e1000 = ["driver-pci", "network-stack"]
 driver-framebuffer = []
 driver-pci = []
 driver-ps2 = []
+driver-ps2-mouse = ["driver-ps2"]
 driver-rtc = []
 fs-sbfs = []
 fs-tmpfs = []

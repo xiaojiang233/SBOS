@@ -36,6 +36,16 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Building channel-probe failed: $LASTEXITCODE" }
     & (Join-Path $PSScriptRoot 'build-c-program.ps1') -Source 'userland/network-probe.c' -Output 'build/userland/network-probe.elf'
     if ($LASTEXITCODE -ne 0) { throw "Building network-probe failed: $LASTEXITCODE" }
+    & (Join-Path $PSScriptRoot 'build-c-program.ps1') -Source 'userland/desktop-demo.c' -Output 'build/userland/desktop-demo.elf'
+    if ($LASTEXITCODE -ne 0) { throw "Building desktop-demo failed: $LASTEXITCODE" }
+    & (Join-Path $PSScriptRoot 'build-c-program.ps1') -Source 'userland/mouse-probe.c' -Output 'build/userland/mouse-probe.elf'
+    if ($LASTEXITCODE -ne 0) { throw "Building mouse-probe failed: $LASTEXITCODE" }
+    & (Join-Path $PSScriptRoot 'build-c-program.ps1') -Source 'userland/tcp-listen-probe.c' -Output 'build/userland/tcp-listen-probe.elf'
+    if ($LASTEXITCODE -ne 0) { throw "Building tcp-listen-probe failed: $LASTEXITCODE" }
+    & (Join-Path $PSScriptRoot 'build-c-program.ps1') -Source 'userland/xserver.c' -Output 'build/userland/xserver.elf'
+    if ($LASTEXITCODE -ne 0) { throw "Building xserver failed: $LASTEXITCODE" }
+    & (Join-Path $PSScriptRoot 'build-c-program.ps1') -Source 'userland/select-probe.c' -Output 'build/userland/select-probe.elf'
+    if ($LASTEXITCODE -ne 0) { throw "Building select-probe failed: $LASTEXITCODE" }
     if ($KernelFeatures.Count -eq 0) { throw 'Enable at least one kernel Cargo feature.' }
     $featureList = $KernelFeatures -join ','
     cargo rustc -p sbos-kernel --release --target x86_64-unknown-none --no-default-features --features $featureList -- -C relocation-model=static -C link-arg=-no-pie -C link-arg=-Tkernel/linker.ld

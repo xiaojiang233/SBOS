@@ -56,6 +56,8 @@ pub extern "C" fn trap_dispatch(frame: *mut TrapFrame) -> *mut TrapFrame {
             crate::task::process::reap_orphans();
             #[cfg(feature = "network-stack")]
             crate::network::poll();
+            #[cfg(feature = "driver-ps2-mouse")]
+            crate::drivers::mouse::poll();
             next_frame
         }
         36 => {

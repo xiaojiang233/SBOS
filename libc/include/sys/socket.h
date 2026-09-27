@@ -37,6 +37,8 @@ struct sockaddr {
 int socket(int domain, int type, int protocol);
 int bind(int socket_fd, const struct sockaddr *address, socklen_t address_length);
 int connect(int socket_fd, const struct sockaddr *address, socklen_t address_length);
+int listen(int socket_fd, int backlog);
+int accept(int socket_fd, struct sockaddr *address, socklen_t *address_length);
 ssize_t sendto(int socket_fd, const void *buffer, size_t length, int flags,
                const struct sockaddr *destination, socklen_t destination_length);
 ssize_t recvfrom(int socket_fd, void *buffer, size_t length, int flags,

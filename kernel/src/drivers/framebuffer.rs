@@ -70,10 +70,71 @@ fn put_pixel(info: FramebufferInfo, x: usize, y: usize, color: u32) {
     }
     let offset = y.saturating_mul(info.stride).saturating_add(x);
     if offset < (info.size / 4) as usize {
+        let color = if info.pixel_format == 0 {
+            ((color & 0x00ff_0000) >> 16) | (color & 0x0000_ff00) | ((color & 0x0000_00ff) << 16)
+        } else {
+            color
+        };
         unsafe {
             (info.base as *mut u32).add(offset).write_volatile(color);
         }
     }
+}
+
+/// Current GOP surface geometry. Pixel colors accepted by drawing operations
+/// use canonical 0x00RRGGBB values.
+pub fn surface_info() -> Option<(u32, u32, u32)> {
+    let renderer = RENDERER.lock();
+    let info = renderer.info?;
+    Some((info.width as u32, info.height as u32, info.pixel_format))
+}
+
+pub fn fill_rect(x: u32, y: u32, width: u32, height: u32, color: u32) -> bool {
+    let renderer = RENDERER.lock();
+    let Some(info) = renderer.info else { return false };
+    if info.pixel_format > 1 { return false; }
+    let left = (x as usize).min(info.width);
+    let top = (y as usize).min(info.height);
+    let right = (x as usize).saturating_add(width as usize).min(info.width);
+    let bottom = (y as usize).saturating_add(height as usize).min(info.height);
+    for row in top..bottom {
+        for column in left..right {
+            put_pixel(info, column, row, color);
+        }
+    }
+    true
+}
+
+pub fn blit_rect(
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    source_stride: usize,
+    pixels: &[u32],
+) -> bool {
+    let renderer = RENDERER.lock();
+    let Some(info) = renderer.info else { return false };
+    if info.pixel_format > 1 || source_stride < width as usize
+        || source_stride.checked_mul(height as usize).is_none_or(|needed| needed > pixels.len())
+    {
+        return false;
+    }
+    for row in 0..height as usize {
+        let destination_y = y as usize + row;
+        if destination_y >= info.height { break; }
+        for column in 0..width as usize {
+            let destination_x = x as usize + column;
+            if destination_x >= info.width { break; }
+            put_pixel(
+                info,
+                destination_x,
+                destination_y,
+                pixels[row * source_stride + column],
+            );
+        }
+    }
+    true
 }
 
 fn fill_cells(info: FramebufferInfo, x0: usize, y0: usize, x1: usize, y1: usize) {

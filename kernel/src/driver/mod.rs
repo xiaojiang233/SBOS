@@ -19,7 +19,14 @@ static DRIVERS: SpinLock<Vec<DriverRecord>> = SpinLock::new(Vec::new());
 pub fn init() {
     let mut d = DRIVERS.lock();
     d.clear();
-    for name in ["serial-16550", "uefi-gop", "i8042-keyboard"] {
+    let names = alloc::vec!["serial-16550", "uefi-gop", "i8042-keyboard"];
+    #[cfg(feature = "driver-ps2-mouse")]
+    let names = {
+        let mut names = names;
+        if crate::drivers::mouse::is_initialized() { names.push("i8042-mouse"); }
+        names
+    };
+    for name in names {
         d.push(DriverRecord {
             name: name.into(),
             version: 1,

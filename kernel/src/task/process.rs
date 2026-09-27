@@ -199,13 +199,20 @@ impl Process {
             crate::drivers::tty::set_foreground(self.parent_pid);
         }
         let mut socket_ids = [0u32; 128];
-        let socket_count = self.fds.lock().clear_and_collect_sockets(&mut socket_ids);
+        let socket_count = self.fds.lock().collect_socket_ids(&mut socket_ids);
+        let mut tcp_socket_ids = [0u32; 128];
+        let tcp_socket_count = self.fds.lock().collect_tcp_socket_ids(&mut tcp_socket_ids);
+        self.fds.lock().clear();
         #[cfg(feature = "network-stack")]
         for id in socket_ids.iter().take(socket_count) {
             crate::network::udp_release(*id);
         }
+        #[cfg(feature = "network-stack")]
+        for id in tcp_socket_ids.iter().take(tcp_socket_count) {
+            crate::network::tcp_release(*id);
+        }
         #[cfg(not(feature = "network-stack"))]
-        let _ = socket_count;
+        let _ = (socket_count, tcp_socket_count);
         self.handles.lock().clear();
         self.state.store(ProcessState::Zombie as u8, Ordering::Release);
         self.exit_waiters.wake_all();
@@ -342,6 +349,10 @@ pub fn fork_process(parent: &Arc<Process>, root: u64) -> Arc<Process> {
         let count = process.fds.lock().collect_socket_ids(&mut socket_ids);
         for id in socket_ids.iter().take(count) {
             let _ = crate::network::udp_retain(*id);
+        }
+        let count = process.fds.lock().collect_tcp_socket_ids(&mut socket_ids);
+        for id in socket_ids.iter().take(count) {
+            let _ = crate::network::tcp_retain(*id);
         }
     }
     PROCESSES.lock_irqsave().push(process.clone());

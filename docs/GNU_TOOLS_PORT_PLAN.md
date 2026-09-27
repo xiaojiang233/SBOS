@@ -31,15 +31,16 @@ Current upstream references: [Coreutils 9.12 source](https://ftp.gnu.org/gnu/cor
 ## Current command profile
 
 The built Coreutils ELF is installed under these `/Applications` names:
-`[`, `basename`, `cat`, `date`, `dirname`, `env`, `false`, `head`, `ls`, `printenv`,
-`printf`, `pwd`, `tail`, `tee`, `test`, `tr`, `true`, `wc`, and `yes`. Bash
-chooses the applet from `argv[0]`. The separate C `clear`, `id`, `mv`, fault,
-channel and POSIX probe programs remain available.
+`[`, `basename`, `cat`, `cut`, `date`, `dirname`, `env`, `false`, `head`,
+`ls`, `mkdir`, `printenv`, `printf`, `pwd`, `rm`, `rmdir`, `seq`, `sleep`,
+`tail`, `tee`, `test`, `tr`, `true`, `wc`, and `yes`. Bash chooses the applet
+from `argv[0]`. The separate C `clear`, `id`, `mv`, desktop, mouse, network,
+TCP, and POSIX probe programs remain available.
 
-Do not enable commands whose current contract is still missing at the syscall
-layer, such as full `mkdir`, `rmdir`, file mode changes, timestamps, symlinks,
-hardlinks, `stat -f`, or host accounting data. Add those native/POSIX operations
-as individually scoped compatibility work before widening the package list.
+`mkdir`, `rm`, and `rmdir` were added after their VFS syscall paths were
+available. Keep excluding commands whose contracts remain incomplete, such as
+file mode changes, timestamps, symlinks, hardlinks, `stat -f`, and host
+accounting data.
 
 ## Configure findings
 
@@ -47,8 +48,8 @@ The Coreutils 9.12 configure script accepts `x86_64-unknown-none` as a cross
 host. Its selected profile compiles and links as a static ELF64 image using
 the SBOS libc. The current libc intentionally lacks many optional POSIX interfaces, including
 `*at` filesystem calls, `fchdir`, `fchown`, `futimens`, `ftruncate`, `getgroups`,
-`fseeko`/`ftello`, locale conversion, TCP sockets and several legacy resolver
-APIs. Configure reports these
+`fseeko`/`ftello`, locale conversion, broader TCP options and several legacy
+resolver APIs. Configure reports these
 as absent so Gnulib can select substitutes. The shell smoke session exercised
 the installed `ls`, `cat`, and `printf` applets under Ring 3. The new kernel
 time service exposes CMOS RTC UTC realtime plus PIT-backed monotonic time. The
@@ -74,8 +75,9 @@ Coreutils port. `date -u` was QEMU-tested against the RTC/PIT time service.
 `stty`, `df`, and `du` remain excluded because their required
 TTY/volume interfaces are incomplete. Grep, sed, findutils, tar and gzip have
 not yet been ported. Ring 3 IPv4 UDP and libc `getaddrinfo` A-record lookup
-work; TCP streams and reverse/legacy resolver APIs remain missing, so typical
-network clients cannot run yet. Locale
+work; TCP stream listen/accept/read/write works in QEMU, while active connect
+and broader stream semantics still need coverage. Reverse/legacy resolver APIs
+remain missing, so typical network clients are not yet compatible. Locale
 support remains C/POSIX only, Bash
 Readline, job control, NLS, and multibyte locale support remain disabled, and
 unsupported libc calls continue to report their actual errors.

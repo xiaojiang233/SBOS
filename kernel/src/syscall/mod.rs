@@ -92,6 +92,13 @@ pub enum NativeCall {
     DirectoryRemove = 65,
     FileSync = 66,
     ThreadSleep = 67,
+    DisplayInfo = 75,
+    DisplayFillRect = 76,
+    DisplayBlitRect = 77,
+    MouseReadEvent = 78,
+    TcpListen = 79,
+    TcpAccept = 80,
+    PosixSelect = 81,
 }
 
 struct UserWriter<'a> {
@@ -1384,6 +1391,88 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 if duration > i64::MAX as u128 { return Err(-75); }
                 crate::posix::thread_sleep(duration as u64)?
             }
+            75 => {
+                let process = current()?;
+                if !process.security.capabilities.contains(crate::security::Capabilities::DISPLAY) {
+                    return Err(ERR_DENIED);
+                }
+                #[repr(C)]
+                struct DisplayInfo { width: u32, height: u32, pixel_format: u32, reserved: u32 }
+                let (width, height, pixel_format) = crate::drivers::framebuffer::surface_info()
+                    .ok_or(ERR_UNSUPPORTED)?;
+                let info = DisplayInfo { width, height, pixel_format, reserved: 0 };
+                let bytes = unsafe {
+                    core::slice::from_raw_parts((&info as *const DisplayInfo).cast::<u8>(), core::mem::size_of::<DisplayInfo>())
+                };
+                check_out(a0, bytes.len())?;
+                vmm::copy_to_user(a0, bytes).map_err(|_| ERR_FAULT)?;
+                bytes.len() as isize
+            }
+            76 => {
+                let process = current()?;
+                if !process.security.capabilities.contains(crate::security::Capabilities::DISPLAY) {
+                    return Err(ERR_DENIED);
+                }
+                if !crate::drivers::framebuffer::fill_rect(a0 as u32, a1 as u32, a2 as u32, a3 as u32, a4 as u32) {
+                    return Err(ERR_UNSUPPORTED);
+                }
+                0
+            }
+            77 => {
+                let process = current()?;
+                if !process.security.capabilities.contains(crate::security::Capabilities::DISPLAY) {
+                    return Err(ERR_DENIED);
+                }
+                let width = a2 as usize;
+                let height = a3 as usize;
+                let stride = a5 as usize;
+                let count = stride.checked_mul(height).ok_or(ERR_INVALID)?;
+                if stride < width || count > MAX_COPY / core::mem::size_of::<u32>() {
+                    return Err(ERR_INVALID);
+                }
+                let mut pixels = [0u32; MAX_COPY / core::mem::size_of::<u32>()];
+                let byte_count = count * core::mem::size_of::<u32>();
+                if byte_count != 0 {
+                    copy_in(a4, byte_count, unsafe {
+                        core::slice::from_raw_parts_mut(pixels.as_mut_ptr().cast::<u8>(), byte_count)
+                    })?;
+                }
+                if !crate::drivers::framebuffer::blit_rect(
+                    a0 as u32, a1 as u32, width as u32, height as u32, stride, &pixels[..count],
+                ) {
+                    return Err(ERR_UNSUPPORTED);
+                }
+                count as isize
+            }
+            78 => {
+                #[cfg(feature = "driver-ps2-mouse")]
+                {
+                    let process = current()?;
+                    if !process.security.capabilities.contains(crate::security::Capabilities::INPUT) {
+                        return Err(ERR_DENIED);
+                    }
+                    if a1 & !1 != 0 { return Err(ERR_INVALID); }
+                    let mut event = None;
+                    let result = wait_until(
+                        crate::drivers::mouse::wait_queue(),
+                        if a1 & 1 != 0 { 0 } else { u64::MAX },
+                        || crate::drivers::mouse::try_read().map(|value| { event = Some(value); 0 }),
+                    );
+                    if result < 0 { return Err(result); }
+                    let event = event.ok_or(ERR_INVALID)?;
+                    let bytes = unsafe {
+                        core::slice::from_raw_parts(
+                            (&event as *const crate::drivers::mouse::MouseEvent).cast::<u8>(),
+                            core::mem::size_of::<crate::drivers::mouse::MouseEvent>(),
+                        )
+                    };
+                    check_out(a0, bytes.len())?;
+                    vmm::copy_to_user(a0, bytes).map_err(|_| ERR_FAULT)?;
+                    0
+                }
+                #[cfg(not(feature = "driver-ps2-mouse"))]
+                { return Err(ERR_UNSUPPORTED); }
+            }
             40 => {
                 let parent = current()?;
                 let requested_pid = a0 as i64;
@@ -1434,7 +1523,7 @@ fn handle_call(frame: &mut TrapFrame) -> Option<isize> {
                 }
                 completed_pid
             }
-            46..=63 | 68..=74 => crate::posix::dispatch(number, frame)?,
+            46..=63 | 68..=74 | 79..=81 => crate::posix::dispatch(number, frame)?,
             _ => return Err(ERR_UNSUPPORTED),
         })
     })();

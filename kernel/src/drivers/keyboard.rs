@@ -79,8 +79,18 @@ pub fn try_read_byte() -> Option<u8> {
     if let Some(byte) = super::serial::try_read_byte() {
         return Some(byte);
     }
-    if unsafe { in8(0x64) } & 1 == 0 {
+    let status = unsafe { in8(0x64) };
+    if status & 1 == 0 {
         return None;
+    }
+    if status & 0x20 != 0 {
+        #[cfg(feature = "driver-ps2-mouse")]
+        return None;
+        #[cfg(not(feature = "driver-ps2-mouse"))]
+        {
+            let _ = unsafe { in8(0x60) };
+            return None;
+        }
     }
     let code = unsafe { in8(0x60) };
     if code == 0xe0 {
